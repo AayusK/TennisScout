@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from tennisscout import backtest, config
 from tennisscout.elo import EloConfig
+from tennisscout.serve_return import SRConfig
 
 
 @pytest.fixture
@@ -15,6 +16,9 @@ def client(loaded, tmp_path, monkeypatch):
     preds, model = backtest.replay(backtest.load_matches(conn), cfg, 2000)
     backtest.save(conn, cfg, preds, model, {"validation_years": [0, 0], "test_years": [0, 0],
                                             "selected_config": asdict(cfg), "test_headline": {}, "test_calibration": []})
+    sr_preds, sr_model = backtest.replay_sr(backtest.load_matches(conn), SRConfig(), 2000)
+    blend = backtest.blend(preds, sr_preds, [0.6, 0.3])
+    backtest.save_sr(conn, SRConfig(), sr_model, {"serve_return": sr_preds, "elo_sr_blend": blend}, [0.6, 0.3], "elo_sr_blend")
     db_path = conn.execute("PRAGMA database_list").fetchone()[2]
     monkeypatch.setattr(config, "DB_PATH", type(config.DB_PATH)(db_path))
     from tennisscout.api import app
@@ -30,7 +34,9 @@ def test_predict_ok(client):
     assert body["p_a"] + body["p_b"] == pytest.approx(1)
     assert body["player_a"]["name"] == "Alex Alpha"
     assert body["data_as_of"]
-    assert any("Surface Elo only" in c for c in body["caveats"])
+    assert body["model"] == "elo_sr_blend"
+    assert body["p_a"] == pytest.approx(body["components"]["elo_sr_blend"])
+    assert {"elo_selected", "serve_return", "serve_point_win", "hold"} <= set(body["components"])
 
 
 def test_ambiguous_name_is_refused_with_candidates(client):

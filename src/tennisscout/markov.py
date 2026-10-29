@@ -1,0 +1,120 @@
+"""Point -> game -> set -> match probabilities for i.i.d. serve points (spec, "Prediction engine" step 2).
+
+``pa`` is the chance A wins a point on A's serve, ``pb`` the chance B wins a
+point on B's serve. Who serves first does not change the chance of winning a
+set or match under these assumptions (Newton & Keller 2005), so the server is
+not tracked across sets; tests check that symmetry numerically.
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+
+STANDARD = (6, 7)  # tiebreak at 6-6, first to 7
+
+
+def hold(p: float) -> float:
+    """Chance the server wins a standard (advantage) game."""
+    q = 1 - p
+    return p**4 * (1 + 4 * q + 10 * q * q) + 20 * p**3 * q**3 * p * p / (1 - 2 * p * q)
+
+
+@lru_cache(maxsize=None)
+def _tiebreak(pa: float, pb: float, n: int) -> float:
+    """A serves the first point; then ABBA... First to n, win by 2."""
+    a, b = pa * (1 - pb), (1 - pa) * pb  # one point on each serve, A takes both / B takes both
+    from_tie = a / (a + b)
+    prob = {(0, 0): 1.0}
+    win = 0.0
+    for total in range(2 * n - 2):
+        for i in range(max(0, total - n + 1), min(total, n - 1) + 1):
+            j = total - i
+            m = prob.pop((i, j), 0.0)
+            if not m:
+                continue
+            a_serves = total % 4 in (0, 3)
+            p_point = pa if a_serves else 1 - pb
+            for di, pm in ((1, p_point), (0, 1 - p_point)):
+                ni, nj = i + di, j + 1 - di
+                if ni == n:
+                    win += m * pm
+                elif nj < n:
+                    prob[(ni, nj)] = prob.get((ni, nj), 0.0) + m * pm
+    return win + prob.get((n - 1, n - 1), 0.0) * from_tie
+
+
+def tiebreak(pa: float, pb: float, n: int = 7) -> float:
+    return _tiebreak(pa, pb, n)
+
+
+def set_win(pa: float, pb: float, rule: tuple[int, int] | None = STANDARD) -> float:
+    """Chance A wins a set with A serving first.
+
+    ``rule`` = (tiebreak at T-T, tiebreak first to n); ``None`` means an
+    advantage set (no tiebreak); ``("match_tb", n)`` means the whole set is one
+    tiebreak to n (Laver Cup deciders).
+    """
+    if rule and rule[0] == "match_tb":
+        return tiebreak(pa, pb, rule[1])
+    ha, hb = hold(pa), hold(pb)
+    prob = {(0, 0): 1.0}
+    win = 0.0
+    for total in range(12):
+        for i in range(max(0, total - 6), min(total, 6) + 1):
+            j = total - i
+            m = prob.pop((i, j), 0.0)
+            if not m:
+                continue
+            p_game = ha if total % 2 == 0 else 1 - hb
+            for di, pg in ((1, p_game), (0, 1 - p_game)):
+                ni, nj = i + di, j + 1 - di
+                if ni >= 6 and ni - nj >= 2:
+                    win += m * pg
+                elif nj >= 6 and nj - ni >= 2:
+                    continue
+                else:
+                    prob[(ni, nj)] = prob.get((ni, nj), 0.0) + m * pg
+    # From 5-5, two more games: 7-5 / 5-7, or 6-6.
+    m55 = prob.pop((5, 5), 0.0)
+    win += m55 * ha * (1 - hb)
+    m66 = prob.pop((6, 6), 0.0) + m55 * (ha * hb + (1 - ha) * (1 - hb))
+    # At 6-6 (A to serve): pairs of games; A takes both with a, B with b, split with c.
+    a, b = ha * (1 - hb), (1 - ha) * hb
+    c = 1 - a - b
+    if rule is None:
+        return win + m66 * a / (a + b)
+    tb_at, n = rule
+    pairs = tb_at - 6
+    reach_tb = c**pairs
+    return win + m66 * (a * (1 - reach_tb) / (1 - c) + reach_tb * tiebreak(pa, pb, n))
+
+
+def match_win(pa: float, pb: float, best_of: int = 3, final_rule: tuple | None = STANDARD) -> float:
+    s = set_win(pa, pb, STANDARD)
+    f = set_win(pa, pb, final_rule)
+    if best_of == 5:
+        return s**3 + 3 * s**3 * (1 - s) + 6 * s * s * (1 - s) ** 2 * f
+    return s * s + 2 * s * (1 - s) * f
+
+
+def final_set_rule(level: str | None, tourney: str | None, year: int, best_of: int | None):
+    """Deciding-set format by event and year."""
+    t = (tourney or "").lower()
+    if level == "G":
+        if year >= 2022:
+            return (6, 10)
+        if "wimbledon" in t:
+            return None if year <= 2018 else (12, 7)
+        if "australian" in t:
+            return None if year <= 2018 else (6, 10)
+        if "roland" in t or "french" in t:
+            return None
+        return STANDARD  # US Open
+    if level == "D" and year <= 2015:
+        return None
+    if level == "O" and year <= 2012:
+        return None
+    if "laver cup" in t:
+        return ("match_tb", 10)
+    # shortcut: Next Gen Finals short no-ad sets are scored as standard sets, encode them if that event is ever scored on its own.
+    return STANDARD

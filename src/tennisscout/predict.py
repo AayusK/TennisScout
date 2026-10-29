@@ -9,13 +9,16 @@ as current as the last match the source has.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 from dataclasses import asdict, dataclass, field
 from datetime import date
 
-from . import config, db
+from . import config, db, markov
+from .backtest import safe_logit
 from .elo import OVERALL, EloConfig, EloModel, confidence
 from .normalize import norm_name
+from .serve_return import ServeReturnModel, SRConfig
 
 
 class AmbiguousPlayer(Exception):
@@ -57,6 +60,7 @@ class MatchPrediction:
     prediction_time: str
     data_as_of: str | None
     caveats: list[str] = field(default_factory=list)
+    components: dict = field(default_factory=dict)  # every model's probability and the serve/return inputs
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -73,7 +77,7 @@ def _player_ref(conn: sqlite3.Connection, model: str, pid: str) -> PlayerRef:
 
 
 def search(conn: sqlite3.Connection, query: str, model: str | None = None, limit: int = 10) -> list[PlayerRef]:
-    model = model or db.get_meta(conn, "serving_model", "elo_selected")
+    model = model or db.get_meta(conn, "elo_model", "elo_selected")
     q = norm_name(query)
     if not q:
         return []
@@ -87,7 +91,7 @@ def search(conn: sqlite3.Connection, query: str, model: str | None = None, limit
 
 
 def resolve(conn: sqlite3.Connection, query: str, model: str | None = None) -> PlayerRef:
-    model = model or db.get_meta(conn, "serving_model", "elo_selected")
+    model = model or db.get_meta(conn, "elo_model", "elo_selected")
     if query.startswith("P") and query[1:].isdigit():
         return _player_ref(conn, model, query)
     hits = [h for h in search(conn, query, model, limit=50) if h.matches > 0]
@@ -101,7 +105,7 @@ def resolve(conn: sqlite3.Connection, query: str, model: str | None = None) -> P
 
 
 def load_model(conn: sqlite3.Connection, model: str | None = None) -> EloModel:
-    model = model or db.get_meta(conn, "serving_model", "elo_selected")
+    model = model or db.get_meta(conn, "elo_model", "elo_selected")
     cfg_json = db.get_meta(conn, f"model_config:{model}")
     if not cfg_json:
         raise RuntimeError(f"No ratings for model {model!r}; run `tennisscout backtest` first.")
@@ -114,6 +118,19 @@ def load_model(conn: sqlite3.Connection, model: str | None = None) -> EloModel:
     return m
 
 
+def load_sr(conn: sqlite3.Connection) -> ServeReturnModel | None:
+    name = db.get_meta(conn, "sr_model")
+    if not name:
+        return None
+    m = ServeReturnModel(SRConfig(**json.loads(db.get_meta(conn, f"model_config:{name}"))))
+    m.mu = json.loads(db.get_meta(conn, f"sr_mu:{name}"))
+    for r in conn.execute("SELECT player_id, kind, mean, var, n_matches FROM sr_rating WHERE model = ?", (name,)):
+        m.mean[(r["player_id"], r["kind"])] = r["mean"]
+        m.var[(r["player_id"], r["kind"])] = r["var"]
+        m.n[r["player_id"]] = r["n_matches"]
+    return m
+
+
 def predict(
     conn: sqlite3.Connection,
     player_a: str,
@@ -123,7 +140,7 @@ def predict(
     best_of: int = 3,
     model: str | None = None,
 ) -> MatchPrediction:
-    model = model or db.get_meta(conn, "serving_model", "elo_selected")
+    model = model or db.get_meta(conn, "elo_model", "elo_selected")
     a, b = resolve(conn, player_a, model), resolve(conn, player_b, model)
     if a.player_id == b.player_id:
         raise ValueError("both names resolve to the same player")
@@ -137,6 +154,24 @@ def predict(
     base_model.rating, base_model.n = elo.rating, elo.n
     base = base_model.predict(a.player_id, b.player_id, surface, "I" if indoor else "O", best_of)
 
+    components = {"elo_selected": pred.p_a}
+    sr = load_sr(conn)
+    if sr:
+        # Best-of-5 today means a Slam, which plays a 10-point tiebreak at 6-6 in the decider.
+        p_sr, pa, pb = sr.predict(a.player_id, b.player_id, surface, "I" if indoor else "O", best_of,
+                                  "G" if best_of == 5 else None, None, date.today().year)
+        coef = json.loads(db.get_meta(conn, "blend_coef"))
+        z = coef[0] * safe_logit(pred.p_a) + coef[1] * safe_logit(p_sr)
+        components.update({
+            "serve_return": p_sr,
+            "elo_sr_blend": 1 / (1 + math.exp(-z)),
+            "serve_point_win": [pa, pb],
+            "hold": [markov.hold(pa), markov.hold(pb)],
+            "serve_return_matches": [sr.n.get(a.player_id, 0), sr.n.get(b.player_id, 0)],
+        })
+    serving = db.get_meta(conn, "serving_model", "elo_selected")
+    serving = serving if serving in components else "elo_selected"
+
     as_of = db.get_meta(conn, "latest_event_date")
     caveats = []
     if as_of:
@@ -149,7 +184,10 @@ def predict(
     for ref in (a, b):
         if ref.last_match and as_of and (date.fromisoformat(as_of) - date.fromisoformat(ref.last_match)).days > 180:
             caveats.append(f"{ref.name} has no tour-level match in the data since {ref.last_match}.")
-    caveats.append("Surface Elo only: no serve/return, fatigue, conditions, news or market inputs yet.")
+    if sr and min(components["serve_return_matches"]) < 15:
+        caveats.append("Serve/return estimates for at least one player rest mostly on the pool prior (few stat lines).")
+    caveats.append(("Surface Elo + serve/return Markov" if sr else "Surface Elo only")
+                   + ": no fatigue, conditions, news or market inputs yet.")
 
     return MatchPrediction(
         player_a=a,
@@ -157,8 +195,8 @@ def predict(
         surface=surface,
         indoor=indoor,
         best_of=best_of,
-        p_a=pred.p_a,
-        p_b=1 - pred.p_a,
+        p_a=components[serving],
+        p_b=1 - components[serving],
         baseline_p_a=base.p_a,
         confidence=conf,
         ratings={
@@ -169,9 +207,10 @@ def predict(
             "matches_overall": [pred.n_overall_a, pred.n_overall_b],
             "matches_surface": [pred.n_surface_a, pred.n_surface_b],
         },
-        model=model,
+        model=serving,
         model_config=asdict(cfg),
         prediction_time=config.utcnow(),
         data_as_of=as_of,
         caveats=caveats,
+        components=components,
     )

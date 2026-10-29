@@ -29,9 +29,9 @@ before each match"). The generated reports have the full numbers: [backtest](bac
   every model choice on 2014–2018 only; test scores cover 2019–Jan 2026.
 - **Service.** `tennisscout predict A B` and FastAPI `/predict` take names or internal IDs,
   refuse ambiguous names, and report the data cut-off, the confidence and the caveats.
-- **Written but not yet exercised** (hosts blocked here, see below): an Open-Meteo client
-  (reanalysis for past matches, historical forecasts for backtests) and a raw Kalshi/Polymarket
-  book archiver.
+- **Weather and markets** (added once network access was granted): Open-Meteo reanalysis
+  joins, Kalshi/Polymarket listing pulls and market-to-match linking, price-history checks, and
+  a raw order-book archiver.
 
 ## Results
 
@@ -58,8 +58,9 @@ before each match"). The generated reports have the full numbers: [backtest](bac
 - **The tour got harder to predict.** Accuracy falls from about 68% (2014–17) to about 64%
   (2018 on), and the higher-ranked player's win rate falls in step. The drop is in the tour, not
   the pipeline.
-- **No market comparison yet.** It needs the Kalshi/Polymarket data, which this environment
-  cannot reach.
+- **No market comparison yet.** Markets exist only from Aug/Sep 2025, so a market-only
+  baseline covers about 1,100 of our matches; that comparison comes with the pre-match price
+  checkpoints.
 
 **Audit (150 completed singles, 2024–2025, stratified by level):**
 
@@ -69,8 +70,8 @@ before each match"). The generated reports have the full numbers: [backtest](bac
 | ID and name agree: 150/150 | Publication timestamps: 0% anywhere in the source |
 | Opponent, score, round: 150/150; serve stats 149/150 | Exact date: only via a linked chart, 24%; start time 11% |
 | Pre-match ranks: 150/150 | Match-level roof / indoor status: 0% (tournament-level flag only, 96%) |
-| Surface: 150/150 | Weather: 0/129 outdoor matches (Open-Meteo blocked here; coordinates ready for 128) |
-| Altitude: 95% (unverified seed) | Polymarket/Kalshi history: not checkable here (hosts blocked) |
+| Surface: 150/150 | Match-level weather: none. 126 of 128 outdoor matches with coordinates got hourly reanalysis for the *edition window* (2 timed out) |
+| Altitude: 95% (unverified seed) | Market history: only 18% (Kalshi) / 10% (Polymarket) of the sample, because markets start Aug/Sep 2025 |
 | Pre-match Elo prediction: 150/150 | Point-by-point: 24% (MCP sample) |
 
 Population-wide findings:
@@ -85,6 +86,11 @@ Population-wide findings:
   dated a week early.
 - **Cross-source linking.** 6,835 of 7,566 charts link, 2 stay ambiguous, and 280 linked charts
   disagree with TML about the surface (267 are "Hard" vs "Carpet" at old indoor events).
+- **Markets.** Kalshi ATP match markets start 2025-08-01 and Polymarket head-to-head markets
+  2025-09-19. Within those windows 83% of our matches link to a market on each exchange, and the
+  markets' settled winners agree with our results 902/902 (Kalshi) and 557/558 (Polymarket).
+  Kalshi has 1-minute candles with bid and ask. Polymarket has 1-minute prices only, with no bid,
+  ask or size. Neither records first serve or point times, so in-play joins stay impossible.
 - **Stale data.** The TML GitHub mirror ends on **2026-01-21** (its live updates moved to a
   website with no API). Served ratings are about nine months stale and every prediction says so.
 
@@ -95,23 +101,25 @@ Population-wide findings:
    stats for 99% of recent matches, and MCP gives point-level data for a sample.
 3. **Fatigue and travel:** only approximately. "Days since last match" is known only to the
    week. Exact dates need a feed with match start times.
-4. **Conditions:** weather joins are blocked here and city-level at best. Roof status per match
-   does not exist in any source we have.
+4. **Conditions:** city-level hourly weather joins work, and archived forecasts (needed for
+   leak-free pre-match features) are available. Without match times, though, the join covers
+   the edition window, not the match. Roof status per match does not exist in any source we have.
 5. **In-play price paths:** not possible from this history (no point timestamps). The spec
    already rules these out.
-6. **Markets:** unknown until the hosts are reachable. Archiving has to start forward anyway.
+6. **Markets:** joinable and trustworthy (winner checks agree), but only from Aug/Sep 2025.
+   Executable-price analysis needs bid, ask and size, which only Kalshi provides historically.
+   Polymarket books have to be archived going forward.
 7. **Live predictions:** need a current results feed (Sportradar, API-Tennis or similar). The
    free mirror is stale, and neither source covers Challengers, which is also why the
    sparse-data path matters for players like the spec's Dietrich.
 
 ## Blocked, needs you
 
-- **Network allowlist.** This environment's policy returns 403 for `archive-api.open-meteo.com`,
-  `historical-forecast-api.open-meteo.com`, `api.elections.kalshi.com`,
-  `gamma-api.polymarket.com` and `clob.polymarket.com`. Add them under the environment's
-  Network access → Allowed domains (https://code.claude.com/docs/en/cloud-environments#network-access)
-  so the weather joins, the market probe and the archiver can run. The archiver also needs
-  somewhere persistent to run on a schedule; this container is ephemeral.
+- **Network allowlist:** done. The weather and market hosts are reachable now. Open-Meteo's
+  free tier has a daily request cap that this shared egress IP can hit.
+- **A home for the archiver.** `tennisscout archive-markets` works (raw order books, JSON
+  Lines), but this container is ephemeral, so it needs a persistent scheduler (a cron box or a
+  scheduled CI job) and storage.
 - **A live results feed decision** (paid) before the app can predict current matches.
 - **Licensing.** TML forbids commercial use (including monetized predictions) and
   redistribution. MCP is CC BY-NC-SA. This stays a research tool unless that changes.
@@ -121,6 +129,4 @@ Population-wide findings:
 
 ## Next checkpoint
 
-MVP step 2: per-player serve and return point-win rates from the TML stat lines, shrunk towards
-priors by surface and ranking range, then a point → game → set → match Markov chain. It goes in
-only if it beats this Elo baseline on the same chronological holdout.
+Done: see [checkpoint-2.md](checkpoint-2.md) (serve/return ratings + Markov chain, blended with Elo).
