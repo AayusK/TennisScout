@@ -375,7 +375,8 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
     if len(all_matches) > len(matches):
         for w in (2.0, 1.5, 1.0, 0.5):
             data_variants[f"with_challenger_k{w}"] = (all_matches, selected.with_(challenger_k_weight=w))
-        data_variants["with_challenger_k1.5_qualifying_k0.5"] = (all_matches, selected.with_(challenger_k_weight=1.5, qual_k_weight=0.5))
+        for q in (0.5, 0.25):
+            data_variants[f"with_challenger_k1.5_qualifying_k{q}"] = (all_matches, selected.with_(challenger_k_weight=1.5, qual_k_weight=q))
     data_results, variant_preds = {}, {}
     for name, (ms, ecfg) in data_variants.items():
         pe, me = replay(ms, ecfg, START_YEAR)
