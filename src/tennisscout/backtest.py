@@ -22,10 +22,12 @@ import sqlite3
 import zlib
 from collections import defaultdict
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 from . import db, metrics
 from .elo import OVERALL, EloConfig, EloModel, confidence
+from .serve_return import ServeReturnModel, SRConfig
+from .serve_return import confidence as sr_confidence
 
 VALIDATION = (2014, 2018)
 TEST = (2019, 2026)
@@ -49,6 +51,11 @@ class MatchRow:
     level: str | None
     outcome: str
     round: str | None
+    tourney: str | None = None
+    w_svpt: int | None = None  # serve points / serve points won; None when the stat line fails validation
+    w_won: int | None = None
+    l_svpt: int | None = None
+    l_won: int | None = None
 
 
 @dataclass
@@ -74,7 +81,8 @@ def load_matches(conn: sqlite3.Connection) -> list[MatchRow]:
         SELECT m.match_id, m.seq, e.year, COALESCE(m.event_date_lo, e.start_date) AS d,
                m.winner_id, m.loser_id, COALESCE(m.surface, e.surface) AS surface,
                COALESCE(m.indoor, e.indoor) AS indoor, m.best_of, m.winner_rank, m.loser_rank,
-               COALESCE(m.level, e.level) AS level, m.outcome, m.round
+               COALESCE(m.level, e.level) AS level, m.outcome, m.round, e.name,
+               {_valid_stats("w")}, {_valid_stats("l")}
         FROM match m JOIN tournament_edition e USING (edition_id)
         WHERE m.identity_status = 'ok'
           AND m.outcome NOT IN ({','.join('?' * len(EXCLUDED_OUTCOMES))})
@@ -82,6 +90,13 @@ def load_matches(conn: sqlite3.Connection) -> list[MatchRow]:
         ORDER BY m.seq
     """
     return [MatchRow(*r) for r in conn.execute(q, EXCLUDED_OUTCOMES)]
+
+
+def _valid_stats(side: str) -> str:
+    """SQL for (serve points, serve points won), NULL when the line is internally inconsistent."""
+    ok = (f"m.{side}_svpt > 0 AND m.{side}_1stin <= m.{side}_svpt AND m.{side}_1stwon <= m.{side}_1stin "
+          f"AND m.{side}_2ndwon <= m.{side}_svpt - m.{side}_1stin")
+    return f"CASE WHEN {ok} THEN m.{side}_svpt END, CASE WHEN {ok} THEN m.{side}_1stwon + m.{side}_2ndwon END"
 
 
 def player1_is_winner(match_id: str) -> bool:
@@ -95,16 +110,33 @@ def replay(matches: Iterable[MatchRow], cfg: EloConfig, score_from_year: int, mo
     out: list[PredRecord] = []
     for m in matches:
         if m.year >= score_from_year:
-            if player1_is_winner(m.match_id):
-                a, b, ra, rb, y = m.winner_id, m.loser_id, m.rank_w, m.rank_l, 1
-            else:
-                a, b, ra, rb, y = m.loser_id, m.winner_id, m.rank_l, m.rank_w, 0
+            a, b, ra, rb, y = _orient(m)
             pred = model.predict(a, b, m.surface, m.indoor, m.best_of, ra, rb)
             out.append(
                 PredRecord(m.match_id, m.seq, m.year, a, b, pred.p_a, y, confidence(pred), m.level,
                            pred.bucket, m.best_of, m.outcome, ra, rb)
             )
         model.update(m.winner_id, m.loser_id, m.surface, m.indoor, m.rank_w, m.rank_l, m.date)
+    return out, model
+
+
+def _orient(m: MatchRow):
+    if player1_is_winner(m.match_id):
+        return m.winner_id, m.loser_id, m.rank_w, m.rank_l, 1
+    return m.loser_id, m.winner_id, m.rank_l, m.rank_w, 0
+
+
+def replay_sr(matches: Iterable[MatchRow], cfg: SRConfig, score_from_year: int):
+    """Same walk as ``replay`` for the serve/return + Markov model."""
+    model = ServeReturnModel(cfg)
+    out: list[PredRecord] = []
+    for m in matches:
+        if m.year >= score_from_year:
+            a, b, ra, rb, y = _orient(m)
+            p, _, _ = model.predict(a, b, m.surface, m.indoor, m.best_of, m.level, m.tourney, m.year)
+            out.append(PredRecord(m.match_id, m.seq, m.year, a, b, p, y, sr_confidence(model, a, b), m.level,
+                                  model.bucket(m.surface, m.indoor), m.best_of, m.outcome, ra, rb))
+        model.update(m.winner_id, m.loser_id, m.surface, m.indoor, m.w_svpt, m.w_won, m.l_svpt, m.l_won)
     return out, model
 
 
@@ -122,21 +154,60 @@ def _rank_feature(p: PredRecord) -> float:
     return math.log(p.rank2 or UNRANKED) - math.log(p.rank1 or UNRANKED)
 
 
-def fit_rank_logistic(preds: list[PredRecord]) -> float:
-    """One-parameter logistic on the log-rank gap, fitted by Newton's method."""
-    beta = 0.5
+def fit_logistic(xs: list[list[float]], ys: list[int]) -> list[float]:
+    """Logistic regression without intercept (player 1 is a coin flip, so none is needed), by Newton's method."""
+    k = len(xs[0])
+    w = [0.0] * k
     for _ in range(50):
-        g = h = 0.0
-        for p in preds:
-            x = _rank_feature(p)
-            q = 1 / (1 + math.exp(-beta * x))
-            g += (q - p.y) * x
-            h += q * (1 - q) * x * x
-        step = g / h if h else 0.0
-        beta -= step
-        if abs(step) < 1e-9:
+        g = [0.0] * k
+        h = [[0.0] * k for _ in range(k)]
+        for x, y in zip(xs, ys):
+            q = 1 / (1 + math.exp(-sum(wi * xi for wi, xi in zip(w, x))))
+            for i in range(k):
+                g[i] += (q - y) * x[i]
+                for j in range(k):
+                    h[i][j] += q * (1 - q) * x[i] * x[j]
+        step = _solve(h, g)
+        w = [wi - si for wi, si in zip(w, step)]
+        if max(abs(si) for si in step) < 1e-9:
             break
-    return beta
+    return w
+
+
+def _solve(a: list[list[float]], b: list[float]) -> list[float]:
+    """Gaussian elimination for the tiny Newton systems above."""
+    n = len(b)
+    m = [row[:] + [bi] for row, bi in zip(a, b)]
+    for i in range(n):
+        piv = max(range(i, n), key=lambda r: abs(m[r][i]))
+        m[i], m[piv] = m[piv], m[i]
+        for r in range(i + 1, n):
+            f = m[r][i] / m[i][i]
+            m[r] = [x - f * y for x, y in zip(m[r], m[i])]
+    out = [0.0] * n
+    for i in reversed(range(n)):
+        out[i] = (m[i][n] - sum(m[i][j] * out[j] for j in range(i + 1, n))) / m[i][i]
+    return out
+
+
+def fit_rank_logistic(preds: list[PredRecord]) -> float:
+    """One-parameter logistic on the log-rank gap."""
+    return fit_logistic([[_rank_feature(p)] for p in preds], [p.y for p in preds])[0]
+
+
+def safe_logit(p: float) -> float:
+    p = min(max(p, 1e-6), 1 - 1e-6)
+    return math.log(p / (1 - p))
+
+
+def blend(elo: list[PredRecord], sr: list[PredRecord], coef: list[float]) -> list[PredRecord]:
+    """Elo and serve/return probabilities combined on the logit scale."""
+    out = []
+    for e, r in zip(elo, sr):
+        assert e.match_id == r.match_id
+        z = coef[0] * safe_logit(e.p1) + coef[1] * safe_logit(r.p1)
+        out.append(replace(e, p1=1 / (1 + math.exp(-z))))
+    return out
 
 
 def rank_predictions(preds: list[PredRecord], beta: float) -> list[float]:
@@ -200,6 +271,17 @@ def forward_selection(matches: list[MatchRow], log=print):
     return current.with_(name="elo_selected"), steps, tried
 
 
+def paired_gain(base: list[PredRecord], new: list[PredRecord]) -> dict:
+    """Per-match Brier and log-loss improvement of ``new`` over ``base``, with standard errors."""
+    out = {"n": len(base)}
+    for name, loss in (("brier", lambda p, y: (p - y) ** 2), ("log_loss", lambda p, y: -math.log(p if y else 1 - p))):
+        d = [loss(b.p1, b.y) - loss(n.p1, n.y) for b, n in zip(base, new)]
+        mean = sum(d) / len(d)
+        se = (sum((x - mean) ** 2 for x in d) / (len(d) - 1) / len(d)) ** 0.5
+        out[name] = {"gain": mean, "se": se, "z": mean / se if se else None}
+    return out
+
+
 def breakdown(preds: list[PredRecord], key) -> dict:
     groups: dict[str, list[PredRecord]] = defaultdict(list)
     for p in preds:
@@ -221,12 +303,47 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
     test_rank_p = rank_predictions(test_sel, beta)
     ys = [p.y for p in test_sel]
 
+    # Serve/return + Markov is served through the blend with Elo, so its two variances are tuned on
+    # the blend's validation log loss (standalone log loss rewards shrinkage that the blend undoes).
+    val_e = window(preds_sel, VALIDATION)
+    sr_grid = []
+    for prior_var in (0.00125, 0.0025, 0.005, 0.01, 0.02, 0.04):
+        for drift_var in (0.00005, 0.0001, 0.0002, 0.0005, 0.001):
+            cfg = SRConfig(prior_var=prior_var, drift_var=drift_var)
+            p, _ = replay_sr(matches, cfg, VALIDATION[0])
+            val_r = window(p, VALIDATION)
+            c = fit_logistic([[safe_logit(e.p1), safe_logit(r.p1)] for e, r in zip(val_e, val_r)], [e.y for e in val_e])
+            sr_grid.append({"config": asdict(cfg), "coef": c, "validation": score(val_r), "test": score(window(p, TEST)),
+                            "blend_validation": score(window(blend(preds_sel, p, c), VALIDATION))})
+            log(f"  serve/return prior_var={prior_var} drift_var={drift_var}: val log loss {sr_grid[-1]['validation']['log_loss']:.5f}, "
+                f"blend {sr_grid[-1]['blend_validation']['log_loss']:.5f}")
+    best = min(sr_grid, key=lambda g: g["blend_validation"]["log_loss"])
+    # Then per-player surface offsets, kept only if they improve the blend on validation.
+    for surface_var in (0.0005, 0.001, 0.002, 0.004, 0.008, 0.016):
+        cfg = SRConfig(**best["config"]).with_(surface_var=surface_var)
+        p, _ = replay_sr(matches, cfg, VALIDATION[0])
+        val_r = window(p, VALIDATION)
+        c = fit_logistic([[safe_logit(e.p1), safe_logit(r.p1)] for e, r in zip(val_e, val_r)], [e.y for e in val_e])
+        sr_grid.append({"config": asdict(cfg), "coef": c, "validation": score(val_r), "test": score(window(p, TEST)),
+                        "blend_validation": score(window(blend(preds_sel, p, c), VALIDATION))})
+        log(f"  serve/return surface_var={surface_var}: val log loss {sr_grid[-1]['validation']['log_loss']:.5f}, "
+            f"blend {sr_grid[-1]['blend_validation']['log_loss']:.5f}")
+    best = min(sr_grid, key=lambda g: g["blend_validation"]["log_loss"])
+    sr_cfg, coef = SRConfig(**best["config"]), best["coef"]
+    preds_sr, model_sr = replay_sr(matches, sr_cfg, VALIDATION[0])
+    preds_blend = blend(preds_sel, preds_sr, coef)
+    candidates = {"elo_selected": preds_sel, "serve_return": preds_sr, "elo_sr_blend": preds_blend}
+    serving = min(candidates, key=lambda k: score(window(candidates[k], VALIDATION))["log_loss"])
+    log(f"serving model (chosen on validation): {serving}")
+
     headline = {
         "coin_flip": metrics.summarize([0.5] * len(ys), ys),
         "ranking_logistic": {**metrics.summarize(test_rank_p, ys), "beta": beta},
         "elo_overall": score(window(preds_overall, TEST)),
         "elo_538_blend": score(window(preds_base, TEST)),
         "elo_selected": score(test_sel),
+        "serve_return": score(window(preds_sr, TEST)),
+        "elo_sr_blend": score(window(preds_blend, TEST)),
     }
     completed_only = [p for p in test_sel if p.outcome == "completed"]
     result = {
@@ -244,9 +361,18 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
         "test_by_best_of": breakdown(test_sel, lambda p: p.best_of),
         "test_by_year": breakdown(test_sel, lambda p: p.year),
         "test_calibration": metrics.calibration([p.p1 for p in test_sel], ys),
-        "market_baseline": "not run: Kalshi and Polymarket hosts are blocked by this environment's network policy",
+        "sr_config": asdict(sr_cfg),
+        "sr_grid": sr_grid,
+        "blend_coef": coef,
+        "validation_by_model": {k: score(window(v, VALIDATION)) for k, v in candidates.items()},
+        "serving_model": serving,
+        "test_blend_vs_elo": paired_gain(test_sel, window(preds_blend, TEST)),
+        "test_serving_by_confidence": breakdown(window(candidates[serving], TEST), lambda p: p.confidence),
+        "test_serving_calibration": metrics.calibration([p.p1 for p in window(candidates[serving], TEST)], ys),
+        "market_baseline": "not run yet: needs pre-match checkpoint prices joined at prediction time (next step)",
     }
     save(conn, selected, preds_sel, model_sel, result)
+    save_sr(conn, sr_cfg, model_sr, {"serve_return": preds_sr, "elo_sr_blend": preds_blend}, coef, serving)
     return result
 
 
@@ -265,10 +391,28 @@ def save(conn: sqlite3.Connection, cfg: EloConfig, preds: list[PredRecord], mode
                 for (pid, bucket), r in model.rating.items()
             ],
         )
-        db.set_meta(conn, "serving_model", cfg.name)
+        db.set_meta(conn, "elo_model", cfg.name)
         db.set_meta(conn, f"model_config:{cfg.name}", json.dumps(asdict(cfg)))
         db.set_meta(conn, f"model_prior:{cfg.name}", json.dumps({"mean": model.prior.mean, "n": model.prior.n}))
         db.set_meta(conn, "backtest_result", json.dumps(result))
+
+
+def save_sr(conn, cfg: SRConfig, model: ServeReturnModel, preds: dict[str, list[PredRecord]], coef, serving: str) -> None:
+    with conn:
+        for name, ps in preds.items():
+            conn.execute("DELETE FROM prediction WHERE model = ?", (name,))
+            conn.executemany("INSERT INTO prediction VALUES (?,?,?,?,?,?,?,?)",
+                             [(name, p.match_id, p.player1_id, p.player2_id, p.p1, p.y, p.seq, p.confidence) for p in ps])
+        conn.execute("DELETE FROM sr_rating WHERE model = ?", (cfg.name,))
+        conn.executemany(
+            "INSERT INTO sr_rating VALUES (?,?,?,?,?,?)",
+            [(cfg.name, pid, kind, mean, model.var[(pid, kind)], model.n.get(pid, 0)) for (pid, kind), mean in model.mean.items()],
+        )
+        db.set_meta(conn, "sr_model", cfg.name)
+        db.set_meta(conn, f"model_config:{cfg.name}", json.dumps(asdict(cfg)))
+        db.set_meta(conn, f"sr_mu:{cfg.name}", json.dumps(model.mu))
+        db.set_meta(conn, "blend_coef", json.dumps(coef))
+        db.set_meta(conn, "serving_model", serving)
 
 
 __all__ = ["run", "replay", "load_matches", "MatchRow", "PredRecord", "OVERALL"]

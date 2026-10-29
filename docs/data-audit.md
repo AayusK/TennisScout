@@ -2,7 +2,7 @@
 
 # Data audit (first milestone)
 
-Run at 2026-10-29T02:44:11Z. Source snapshots:
+Run at 2026-10-29T04:09:17Z. Source snapshots:
 
 - `tml@9aecc242e98b`: tml revision 9aecc242e98b (2026-10-27T00:54:00+01:00), collected 2026-10-29T02:26:42Z
 - `mcp@1813a1309b7e`: mcp revision 1813a1309b7e (2026-09-18T10:35:54+02:00), collected 2026-10-29T02:32:05Z
@@ -11,11 +11,11 @@ Run at 2026-10-29T02:44:11Z. Source snapshots:
 
 | Service | URL | Reachable | Status / error |
 |---|---|---|---|
-| open_meteo | `https://archive-api.open-meteo.com/v1/archive` | no | URLError: Tunnel connection failed: 403 Forbidden |
-| open_meteo | `https://historical-forecast-api.open-meteo.com/v1/forecast` | no | URLError: Tunnel connection failed: 403 Forbidden |
-| markets | `https://api.elections.kalshi.com/trade-api/v2/series` | no | URLError: Tunnel connection failed: 403 Forbidden |
-| markets | `https://gamma-api.polymarket.com/markets` | no | URLError: Tunnel connection failed: 403 Forbidden |
-| markets | `https://clob.polymarket.com/` | no | URLError: Tunnel connection failed: 403 Forbidden |
+| open_meteo | `https://archive-api.open-meteo.com/v1/archive` | yes | 200 |
+| open_meteo | `https://historical-forecast-api.open-meteo.com/v1/forecast` | yes | 200 |
+| markets | `https://api.elections.kalshi.com/trade-api/v2/series` | yes | 200 |
+| markets | `https://gamma-api.polymarket.com/markets` | yes | 200 |
+| markets | `https://clob.polymarket.com/` | yes | 200 |
 
 ## Sample of 150 completed singles matches (2024–2025, stratified)
 
@@ -32,7 +32,7 @@ Strata: Grand Slam 40, Masters 1000 40, ATP 500 30, ATP 250 30, Finals / team / 
 | Indoor/outdoor flag present | 96.0% (tournament-level only; match-level roof status: 0.0%) |
 | Altitude present | 95.3% (from the unverified manual venue seed) |
 | Outdoor matches with venue coordinates | 128 of 129 |
-| Outdoor matches with reconstructed weather joined | 0 of 129 |
+| Outdoor matches with reconstructed weather joined | 126 of 129 (Open-Meteo reanalysis, city-level, edition window) |
 | Event-time precision | tourney_week: 150 (median window 9 days) |
 | Exact match date available (via linked MCP chart) | 24.0% |
 | Start time of day available (via MCP) | 11.3% |
@@ -40,7 +40,8 @@ Strata: Grand Slam 40, Masters 1000 40, ATP 500 30, ATP 250 30, Finals / team / 
 | Collection timestamp | 100.0% |
 | Point-by-point chart available | 24.0% |
 | Pre-match Elo prediction scored | 100.0% |
-| Polymarket / Kalshi history checked | 0.0% (hosts blocked; see probes) |
+| Kalshi match market linked | 18.0% (Kalshi ATP match markets start Aug 2025) |
+| Polymarket match market linked | 10.0% (Polymarket head-to-head markets start Sep 2025) |
 
 ## Identity (whole TML backbone)
 
@@ -65,21 +66,53 @@ Players seen under more than one display name: 11.
 - Editions whose TML date is contradicted by exact-dated MCP charts: 18.
 - Latest event in the mirror: 2026-01-21.
 
+## Prediction markets
+
+Each exchange match market is linked to our matches on both players (internal IDs), a date window, the round when the exchange states it, and tournament name as a tie-break. Markets without a round (Polymarket, 2025-format Kalshi) must not predate the main draw, so qualifying meetings cannot link.
+
+| | Kalshi | Polymarket |
+|---|---:|---:|
+| Match events listed | 4,657 | 44,483 |
+| First market date | 2025-08-01 | 2025-09-19 |
+| after_tml_coverage | 3,454 | 42,468 |
+| linked | 910 | 559 |
+| player_not_in_tml | 19 | 1,006 |
+| no_tour_match | 271 | 417 |
+| second_market_same_match | 2 | 30 |
+| ambiguous | 1 | 3 |
+| Our matches in the overlap window | 1,102 | 674 |
+| … with a linked market | 910 (82.6%) | 559 (82.9%) |
+| Settled winner agrees with our data | 902 of 902 | 557 of 558 |
+
+Price history around the match day, for a deterministic sample of linked markets:
+
+| | Kalshi | Polymarket |
+|---|---|---|
+| Markets sampled | 15 | 15 |
+| Median gap between observations | 60 s | 60 s |
+| Bid and ask available | 15 of 15 | 0 of 15 |
+| Scheduled start known | 7 of 15 | 15 of 15 |
+| Observation in the hour before scheduled start | 5 of 7 | 14 of 15 |
+
+Scheduled start is the exchange's own schedule, not first serve: no source here records first serve, and none records point or game timestamps, so in-play price paths cannot be joined.
+
+Archived forecast check (Open-Meteo historical-forecast API, needed for leak-free pre-match conditions): ok.
+
 ## Cross-source linking (Match Charting Project → internal IDs)
 
 | Link status | All years | 2019 on |
 |---|---:|---:|
-| linked | 6,835 | 3,405 |
+| linked | 6,836 | 3,406 |
 | not_tour_level | 465 | 343 |
 | beyond_source_coverage | 135 | 135 |
-| no_candidate | 104 | 55 |
+| no_candidate | 103 | 54 |
 | player_unresolved | 23 | 19 |
 | ambiguous | 2 | 1 |
 | malformed_row | 1 | 1 |
 
 Player-name resolution: resolved 14,960, unresolved 120, resolved_via_match_fuzzy 44, resolved_via_match 3, ambiguous 1.
 
-Of 6,835 linked charts, 280 disagree with TML about the surface (267 are MCP 'Hard' vs TML 'Carpet'), and 3,881 carry a start time.
+Of 6,836 linked charts, 280 disagree with TML about the surface (267 are MCP 'Hard' vs TML 'Carpet'), and 3,881 carry a start time.
 
 Name variants resolved only because the match-level join was unique (candidates for `metadata/player_aliases.csv` after review):
 

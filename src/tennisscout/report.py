@@ -48,18 +48,57 @@ def backtest_md(r: dict) -> str:
         (f"Ranking logistic (β={h['ranking_logistic']['beta']:.3f}, fitted on validation)", h["ranking_logistic"]),
         ("Elo, overall only", h["elo_overall"]),
         ("Elo, 50/50 surface blend (FiveThirtyEight-style)", h["elo_538_blend"]),
-        ("**Elo, selected on validation**", h["elo_selected"]),
+        ("Elo, selected on validation", h["elo_selected"]),
+        ("Serve/return ratings + Markov chain", h["serve_return"]),
+        ("**Elo + serve/return blend (fitted on validation)**", h["elo_sr_blend"]),
     ])
     L += [
         "",
         "Lower is better for Brier, log loss and ECE (expected calibration error, 10 bins). "
         f"Market baseline: {r['market_baseline']}.",
         "",
-        f"Selected model, completed matches only (retirements removed): "
+        f"Selected Elo, completed matches only (retirements removed): "
         f"Brier {_f(r['test_selected_completed_only']['brier'])}, log loss {_f(r['test_selected_completed_only']['log_loss'])}, "
         f"n = {r['test_selected_completed_only']['n']:,}.",
         "",
-        "## How the model was chosen",
+        f"Serving model, chosen by validation log loss among the last three rows: **{r['serving_model']}**. "
+        f"Blend: logit p = {r['blend_coef'][0]:.3f} × logit p_Elo + {r['blend_coef'][1]:.3f} × logit p_Markov "
+        "(coefficients fitted on validation; the blend's validation score is therefore slightly optimistic).",
+        "",
+        "Blend vs selected Elo on the same test matches (positive = blend better): "
+        + "; ".join(f"{k} gain {r['test_blend_vs_elo'][k]['gain']:.4f} ± {r['test_blend_vs_elo'][k]['se']:.4f} "
+                    f"(z = {r['test_blend_vs_elo'][k]['z']:.1f})" for k in ("brier", "log_loss")) + ".",
+        "",
+        "## Serve/return model",
+        "",
+        "Each player has serve and return ratings on the logit scale; P(A wins a point on serve) = "
+        "sigmoid(surface average + serve_A − return_B). Each match's serve points won update the ratings by a "
+        "one-step Bayesian (Laplace) step, so players with few stat lines stay near the pool. The point "
+        "probabilities go through a game → tiebreak → set → match Markov chain with each event's deciding-set "
+        "rules (advantage sets, 12–12 and 10-point tiebreaks by Slam and year). Matches without a valid stat line "
+        "still get a prediction but do not update the ratings.",
+        "",
+        "Prior and drift variances are chosen on the **blend's** validation log loss, because the blend is what is "
+        "served; per-player surface offsets are then added only if they improve it further (they did).",
+        "",
+        "| prior_var | drift_var | surface_var | Markov alone, validation | Markov alone, test | Blend, validation |",
+        "|---:|---:|---:|---:|---:|---:|",
+    ]
+    L += [f"| {g['config']['prior_var']} | {g['config']['drift_var']} | {g['config']['surface_var']} | {_f(g['validation']['log_loss'], 5)} | "
+          f"{_f(g['test']['log_loss'], 5)} | {_f(g['blend_validation']['log_loss'], 5)} |" for g in r["sr_grid"]]
+    L += [
+        "",
+        f"Calibration of the serving model ({r['serving_model']}), test window:",
+        "",
+        "| Predicted | n | Mean prediction | Observed win rate |",
+        "|---|---:|---:|---:|",
+    ]
+    L += [f"| {b['lo']:.1f}–{b['hi']:.1f} | {b['n']:,} | {_f(b['mean_p'], 3)} | {_f(b['observed'], 3)} |" for b in r["test_serving_calibration"]]
+    L += ["", "By confidence grade (serving model, test window):", ""]
+    L += _metrics_table(list(r["test_serving_by_confidence"].items()))
+    L += [
+        "",
+        "## How the Elo model was chosen",
         "",
         "Greedy forward selection: start from the FiveThirtyEight-style blend, try each single change, adopt the one "
         "that most improves **validation** log loss, repeat until nothing improves. Test numbers are shown for "
@@ -83,13 +122,13 @@ def backtest_md(r: dict) -> str:
     ]
     for c in r["candidates_tried"]:
         L.append(f"| {c['from']} | {c['change']} | {_f(c['validation']['log_loss'], 5)} | {_f(c['test']['log_loss'], 5)} |")
-    L += ["", "</details>", "", "## Calibration (selected model, test window)", "",
+    L += ["", "</details>", "", "## Calibration (selected Elo, test window)", "",
           "| Predicted | n | Mean prediction | Observed win rate |", "|---|---:|---:|---:|"]
     for b in r["test_calibration"]:
         L.append(f"| {b['lo']:.1f}–{b['hi']:.1f} | {b['n']:,} | {_f(b['mean_p'], 3)} | {_f(b['observed'], 3)} |")
     for title, key in (("By confidence grade", "test_by_confidence"), ("By tournament level", "test_by_level"),
                        ("By surface bucket", "test_by_bucket"), ("By best-of", "test_by_best_of"), ("By year", "test_by_year")):
-        L += ["", f"## {title} (selected model, test window)", ""]
+        L += ["", f"## {title} (selected Elo, test window)", ""]
         L += _metrics_table(list(r[key].items()))
     L += [
         "",
@@ -123,7 +162,7 @@ def audit_md(a: dict) -> str:
         ("Indoor/outdoor flag present", f"{_pct(ss['has_indoor_flag'])} (tournament-level only; match-level roof status: {_pct(ss['indoor_flag_match_level'])})"),
         ("Altitude present", f"{_pct(ss['has_altitude_seed'])} (from the unverified manual venue seed)"),
         ("Outdoor matches with venue coordinates", f"{ss['outdoor_with_coordinates']} of {ss['outdoor_matches']}"),
-        ("Outdoor matches with reconstructed weather joined", f"{ss['outdoor_weather_joined']} of {ss['outdoor_matches']}"),
+        ("Outdoor matches with reconstructed weather joined", f"{ss['outdoor_weather_joined']} of {ss['outdoor_matches']} (Open-Meteo reanalysis, city-level, edition window)"),
         ("Event-time precision", ", ".join(f"{k}: {v}" for k, v in ss["event_time_precision"].items()) + f" (median window {ss['median_event_window_days']} days)"),
         ("Exact match date available (via linked MCP chart)", _pct(ss["exact_date_via_mcp"])),
         ("Start time of day available (via MCP)", _pct(ss["start_time_via_mcp"])),
@@ -131,7 +170,8 @@ def audit_md(a: dict) -> str:
         ("Collection timestamp", _pct(ss["has_collection_time"])),
         ("Point-by-point chart available", _pct(ss["point_by_point_available"])),
         ("Pre-match Elo prediction scored", _pct(ss["has_pre_match_prediction"])),
-        ("Polymarket / Kalshi history checked", _pct(ss["market_history_checked"]) + " (hosts blocked; see probes)"),
+        ("Kalshi match market linked", _pct(ss["kalshi_market"]) + " (Kalshi ATP match markets start Aug 2025)"),
+        ("Polymarket match market linked", _pct(ss["polymarket_market"]) + " (Polymarket head-to-head markets start Sep 2025)"),
     ]
     L += [f"| {k} | {v} |" for k, v in rows]
     st = pi["match_rows_by_identity_status"]
@@ -150,6 +190,41 @@ def audit_md(a: dict) -> str:
           f"- Rows with a publication timestamp: {pt['rows_with_publication_time']:,} of {pt['match_rows']:,}.",
           f"- Editions whose TML date is contradicted by exact-dated MCP charts: {pt['editions_with_dates_contradicted_by_mcp']}.",
           f"- Latest event in the mirror: {pt['latest_event_date']}.", ""]
+    if a.get("market_coverage"):
+        L += ["## Prediction markets", "",
+              "Each exchange match market is linked to our matches on both players (internal IDs), a date window, "
+              "the round when the exchange states it, and tournament name as a tie-break. Markets without a round "
+              "(Polymarket, 2025-format Kalshi) must not predate the main draw, so qualifying meetings cannot link.", "",
+              "| | Kalshi | Polymarket |", "|---|---:|---:|"]
+        k, p = a["market_coverage"]["kalshi"], a["market_coverage"]["polymarket"]
+        keys = sorted(set(k["status"]) | set(p["status"]), key=lambda x: -(k["status"].get(x, 0) + p["status"].get(x, 0)))
+        L += [f"| Match events listed | {k['match_events']:,} | {p['match_events']:,} |",
+              f"| First market date | {k['first_market_date']} | {p['first_market_date']} |"]
+        L += [f"| {x} | {k['status'].get(x, 0):,} | {p['status'].get(x, 0):,} |" for x in keys]
+        L += [f"| Our matches in the overlap window | {k['tml_matches_in_window']:,} | {p['tml_matches_in_window']:,} |",
+              f"| … with a linked market | {k['tml_matches_with_market']:,} ({_pct(k['tml_matches_with_market'] / k['tml_matches_in_window'])}) | "
+              f"{p['tml_matches_with_market']:,} ({_pct(p['tml_matches_with_market'] / p['tml_matches_in_window'])}) |",
+              f"| Settled winner agrees with our data | {k['settled_winner_vs_tml'].get('agrees', 0):,} of {sum(k['settled_winner_vs_tml'].values()):,} | "
+              f"{p['settled_winner_vs_tml'].get('agrees', 0):,} of {sum(p['settled_winner_vs_tml'].values()):,} |", ""]
+        pr = a["market_price_resolution"]
+        L += ["Price history around the match day, for a deterministic sample of linked markets:", "",
+              "| | Kalshi | Polymarket |", "|---|---|---|"]
+        def col(rows, f):
+            return f(rows) if rows else "–"
+        L += [
+            f"| Markets sampled | {len(pr['kalshi'])} | {len(pr['polymarket'])} |",
+            "| Median gap between observations | " + " | ".join(col(pr[x], lambda r: f"{sorted(q['median_gap_s'] or 0 for q in r)[len(r) // 2]} s") for x in ("kalshi", "polymarket")) + " |",
+            "| Bid and ask available | " + " | ".join(col(pr[x], lambda r: f"{sum(q['has_bid_ask'] for q in r)} of {len(r)}") for x in ("kalshi", "polymarket")) + " |",
+            "| Scheduled start known | " + " | ".join(col(pr[x], lambda r: f"{sum(1 for q in r if q['scheduled_start'])} of {len(r)}") for x in ("kalshi", "polymarket")) + " |",
+            "| Observation in the hour before scheduled start | " + " | ".join(col(pr[x], lambda r: f"{sum(1 for q in r if q['obs_in_hour_before_start'])} of {sum(1 for q in r if q['scheduled_start'])}") for x in ("kalshi", "polymarket")) + " |",
+            "",
+            "Scheduled start is the exchange's own schedule, not first serve: no source here records first serve, "
+            "and none records point or game timestamps, so in-play price paths cannot be joined.", "",
+        ]
+    fc = a.get("weather_forecast_check") or {}
+    if fc.get("checked"):
+        L += [f"Archived forecast check (Open-Meteo historical-forecast API, needed for leak-free pre-match conditions): "
+              f"{'ok' if fc.get('status') == 200 else (fc.get('error') or fc.get('status'))}.", ""]
     L += ["## Cross-source linking (Match Charting Project → internal IDs)", "",
           "| Link status | All years | 2019 on |", "|---|---:|---:|"]
     keys = sorted(set(cs["charts_all_years"]) | set(cs["charts_2019_on"]), key=lambda k: -cs["charts_all_years"].get(k, 0))

@@ -77,7 +77,13 @@ def cmd_predict(args) -> None:
         return
     a, b = res.player_a, res.player_b
     print(f"{a.name} vs {b.name} | {res.surface}{' indoor' if res.indoor else ''}, best of {res.best_of}")
-    print(f"  P({a.name} wins) = {res.p_a:.1%}   (uncalibrated Elo blend: {res.baseline_p_a:.1%})")
+    print(f"  P({a.name} wins) = {res.p_a:.1%}   [{res.model}]")
+    c = res.components
+    print(f"  layers: plain Elo {res.baseline_p_a:.1%} -> calibrated Elo {c['elo_selected']:.1%}"
+          + (f" | serve/return Markov {c['serve_return']:.1%} -> blend {c['elo_sr_blend']:.1%}" if "serve_return" in c else ""))
+    if "serve_point_win" in c:
+        print(f"  serve points won {c['serve_point_win'][0]:.1%} / {c['serve_point_win'][1]:.1%}, "
+              f"hold {c['hold'][0]:.1%} / {c['hold'][1]:.1%}")
     print(f"  confidence: {res.confidence}; data as of {res.data_as_of}; model {res.model}")
     r = res.ratings
     print(f"  ratings ({r['bucket']}): overall {r['overall'][0]:.0f} / {r['overall'][1]:.0f}, "
@@ -89,6 +95,10 @@ def cmd_predict(args) -> None:
 def cmd_search(args) -> None:
     for r in predict.search(_conn(), args.query, limit=args.limit):
         print(f"{r.player_id}  {r.name:30s} {r.ioc or '':4s} born {r.birthdate or '?':9s} last {r.last_match or '-':10s} {r.matches} matches")
+
+
+def cmd_fetch_markets(args) -> None:
+    print(json.dumps(markets.fetch_listings(), indent=2))
 
 
 def cmd_archive_markets(args) -> None:
@@ -111,7 +121,7 @@ def main(argv: list[str] | None = None) -> None:
     f.set_defaults(func=cmd_fetch)
 
     sub.add_parser("ingest", help="load mirrors into the database under permanent IDs").set_defaults(func=cmd_ingest)
-    b = sub.add_parser("backtest", help="chronological Elo backtest + model selection")
+    b = sub.add_parser("backtest", help="chronological backtest: Elo, serve/return Markov, blend; model selection on validation")
     b.add_argument("-v", "--verbose", action="store_true")
     b.set_defaults(func=cmd_backtest)
     sub.add_parser("audit", help="run the data audit").set_defaults(func=cmd_audit)
@@ -134,6 +144,7 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--limit", type=int, default=10)
     s.set_defaults(func=cmd_search)
 
+    sub.add_parser("fetch-markets", help="store historical Kalshi/Polymarket tennis listings (used by the audit)").set_defaults(func=cmd_fetch_markets)
     sub.add_parser("archive-markets", help="store one raw snapshot of Kalshi/Polymarket tennis books").set_defaults(func=cmd_archive_markets)
     sv = sub.add_parser("serve", help="run the FastAPI service")
     sv.add_argument("--host", default="127.0.0.1")

@@ -100,7 +100,8 @@ def tour_match_index(conn: sqlite3.Connection) -> dict[frozenset, list[TourMatch
     q = """SELECT m.match_id, m.winner_id, m.loser_id, m.round, e.start_date, e.end_date_bound, e.surface, e.name,
                   m.event_date_lo, m.event_date_hi
            FROM match m JOIN tournament_edition e USING (edition_id)
-           WHERE m.winner_id IS NOT NULL AND m.loser_id IS NOT NULL AND e.start_date IS NOT NULL"""
+           WHERE m.winner_id IS NOT NULL AND m.loser_id IS NOT NULL AND e.start_date IS NOT NULL
+             AND m.identity_status = 'ok'"""
     for r in conn.execute(q):
         lo = date.fromisoformat(r["event_date_lo"] or r["start_date"])
         hi = date.fromisoformat(r["event_date_hi"] or r["end_date_bound"] or r["start_date"])
@@ -110,14 +111,15 @@ def tour_match_index(conn: sqlite3.Connection) -> dict[frozenset, list[TourMatch
     return idx
 
 
-def find_links(cands1: set[str], cands2: set[str], d: date, rnd: str, idx, before: int, after: int):
+def find_links(cands1: set[str], cands2: set[str], d: date, rnd: str | None, idx, before: int, after: int):
+    """Tour matches between any candidate pair in the date window; ``rnd=None`` accepts any round."""
     out = []
     for a in cands1:
         for b in cands2:
             if a == b:
                 continue
             for tm in idx.get(frozenset((a, b)), ()):
-                if tm.round != rnd:
+                if rnd and tm.round != rnd:
                     continue
                 if (tm.start - d).days > before or (d - tm.end).days > after:
                     continue

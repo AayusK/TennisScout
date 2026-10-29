@@ -22,9 +22,10 @@ import json
 import random
 import sqlite3
 from collections import Counter, defaultdict
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from . import config, db, markets, weather
+from .ingest_charting import NameIndex, find_links, tour_match_index, tourney_names_agree
 from .normalize import names_compatible
 
 SAMPLE_YEARS = (2024, 2025)
@@ -151,7 +152,7 @@ def draw_sample(conn: sqlite3.Connection) -> list[dict]:
     return sample
 
 
-def check_match(conn: sqlite3.Connection, match_id: str, model: str, weather_ok: bool, markets_ok: bool) -> dict:
+def check_match(conn: sqlite3.Connection, match_id: str, model: str, weather_status: dict, market_links: dict) -> dict:
     m = conn.execute(
         """SELECT m.*, e.name AS tournament, e.year, e.start_date, e.end_date_bound, e.indoor AS ed_indoor,
                   e.surface AS ed_surface, e.latitude, e.longitude, e.elevation_m, e.venue_source, e.venue_city
@@ -192,9 +193,9 @@ def check_match(conn: sqlite3.Connection, match_id: str, model: str, weather_ok:
         "has_altitude": m["elevation_m"] is not None,
         "altitude_source": m["venue_source"] if m["elevation_m"] is not None else None,
         "outdoor": outdoor,
-        "weather_joinable": (outdoor and has_coords and weather_ok) if outdoor else None,
+        "weather_joinable": (weather_status.get(m["edition_id"]) == "joined") if outdoor else None,
         "weather_status": None if not outdoor else (
-            "no venue coordinates" if not has_coords else ("joinable" if weather_ok else "Open-Meteo blocked from this environment")
+            "no venue coordinates" if not has_coords else weather_status.get(m["edition_id"], "not fetched")
         ),
         # timestamps
         "event_time_precision": m["event_time_precision"],
@@ -205,7 +206,8 @@ def check_match(conn: sqlite3.Connection, match_id: str, model: str, weather_ok:
         "start_time_from_mcp": chart["start_time"] if chart else None,
         "point_by_point_available": chart is not None,
         # markets
-        "market_history": "not checked: hosts blocked" if not markets_ok else "unchecked: matcher not built yet",
+        "kalshi_market": (market_links.get(match_id, {}).get("kalshi") or {}).get("event"),
+        "polymarket_market": (market_links.get(match_id, {}).get("polymarket") or {}).get("event"),
         # model
         "pre_match_prediction": pred["p_player1"] if pred else None,
         "pre_match_confidence": pred["confidence"] if pred else None,
@@ -249,18 +251,137 @@ def summarize_sample(rows: list[dict]) -> dict:
         "start_time_via_mcp": sum(1 for r in rows if r["start_time_from_mcp"]) / n,
         "point_by_point_available": share("point_by_point_available"),
         "has_pre_match_prediction": sum(1 for r in rows if r["pre_match_prediction"] is not None) / n,
-        "market_history_checked": 0.0,
+        "kalshi_market": sum(1 for r in rows if r["kalshi_market"]) / n,
+        "polymarket_market": sum(1 for r in rows if r["polymarket_market"]) / n,
     }
 
 
+# -- weather and markets ----------------------------------------------------------------
+
+def join_weather(conn: sqlite3.Connection, match_ids: list[str]) -> tuple[dict, dict]:
+    """Reanalysis weather for each outdoor edition in the sample (one request per edition)."""
+    q = f"""SELECT DISTINCT e.edition_id, e.latitude, e.longitude, e.start_date, e.end_date_bound
+            FROM match m JOIN tournament_edition e USING (edition_id)
+            WHERE m.match_id IN ({','.join('?' * len(match_ids))}) AND COALESCE(m.indoor, e.indoor) = 'O'
+              AND e.latitude IS NOT NULL ORDER BY e.edition_id"""
+    status = {}
+    for r in conn.execute(q, match_ids):
+        rec = weather.fetch_hourly(r["latitude"], r["longitude"], date.fromisoformat(r["start_date"]),
+                                   date.fromisoformat(r["end_date_bound"]), "archive")
+        temps = ((rec["body"] or {}).get("hourly") or {}).get("temperature_2m") or []
+        status[r["edition_id"]] = "joined" if any(t is not None for t in temps) else (rec["error"] or "no data")
+    # Pre-match conditions need the forecast as issued; check that archive for one edition.
+    first = next(iter(status), None)
+    forecast = {"checked": False}
+    if first:
+        e = conn.execute("SELECT latitude, longitude, start_date FROM tournament_edition WHERE edition_id = ?", (first,)).fetchone()
+        d = date.fromisoformat(e["start_date"])
+        rec = weather.fetch_hourly(e["latitude"], e["longitude"], d, d, "historical_forecast")
+        forecast = {"checked": True, "status": rec["status"], "error": rec["error"],
+                    "detail": None if rec["body"] else "see stored response"}
+    return status, forecast
+
+
+def market_coverage(conn: sqlite3.Connection) -> dict | None:
+    """Link exchange match markets to our matches on both players, date window, round (when given) and tournament."""
+    try:
+        listings = {
+            "kalshi": (markets.load_listing("kalshi_KXATPMATCH"), markets.kalshi_events),
+            "polymarket": (markets.load_listing("polymarket_tennis_closed"), markets.polymarket_events),
+        }
+    except FileNotFoundError:
+        return None
+    names = NameIndex.from_db(conn)
+    idx = tour_match_index(conn)
+    end = db.get_meta(conn, "latest_event_date")
+    links: dict[str, dict] = defaultdict(dict)
+    per_exchange = {}
+    for exchange, (listing, parse) in listings.items():
+        events = parse(listing["rows"])
+        counts: Counter = Counter()
+        winner_check: Counter = Counter()
+        first = min(e["date"] for e in events if e["date"])
+        for ev in events:
+            if not ev["date"] or ev["date"] > end:
+                counts["after_tml_coverage"] += 1
+                continue
+            a, b = list(ev["players"])
+            ca, cb = names.candidates(a) or names.fuzzy_candidates(a), names.candidates(b) or names.fuzzy_candidates(b)
+            if not ca or not cb:
+                counts["player_not_in_tml"] += 1
+                continue
+            # Without a round, a market dated before the main draw may be a qualifying meeting of the same pair.
+            before = 2 if ev["round"] else 0
+            found = {tm.match_id: tm for _, _, tm in find_links(ca, cb, date.fromisoformat(ev["date"]), ev["round"], idx, before, 2)}
+            if len(found) > 1:
+                agreeing = {k: v for k, v in found.items() if tourney_names_agree(ev["tournament"], v.tourney)}
+                found = agreeing if len(agreeing) == 1 else found
+            if len(found) != 1:
+                counts["ambiguous" if found else "no_tour_match"] += 1
+                continue
+            mid = next(iter(found))
+            if exchange in links[mid]:
+                counts["second_market_same_match"] += 1
+                continue
+            links[mid][exchange] = ev
+            counts["linked"] += 1
+            if ev["winner"]:
+                w = conn.execute("SELECT p.display_name FROM match m JOIN player p ON p.player_id = m.winner_id WHERE m.match_id = ?", (mid,)).fetchone()
+                winner_check["agrees" if w and names_compatible(w[0], ev["winner"]) else "disagrees"] += 1
+        in_window = conn.execute(
+            """SELECT COUNT(*) FROM match WHERE identity_status = 'ok' AND outcome IN ('completed', 'retired')
+               AND event_date_lo >= ? AND event_date_lo <= ?""", (first, end)).fetchone()[0]
+        covered = sum(1 for mid, d in links.items() if exchange in d)
+        per_exchange[exchange] = {
+            "collected_at": listing["collected_at"], "match_events": len(events), "first_market_date": first,
+            "status": dict(counts), "settled_winner_vs_tml": dict(winner_check),
+            "tml_matches_in_window": in_window, "tml_matches_with_market": covered,
+        }
+    return {"per_exchange": per_exchange, "links": links}
+
+
+def price_resolution(links: dict, n: int = 15) -> dict:
+    """Pull prices around the scheduled start for a deterministic sample of linked markets."""
+    out = {}
+    for exchange in ("kalshi", "polymarket"):
+        linked = sorted((d for d in links.values() if exchange in d), key=lambda d: d[exchange]["event"])
+        rows = []
+        for d in linked[:: max(1, len(linked) // n)][:n]:
+            ev = d[exchange]
+            day = datetime.fromisoformat(ev["date"]).replace(tzinfo=timezone.utc)
+            start, stop = day - timedelta(days=1), day + timedelta(days=2)
+            first = next(iter(ev["players"].values()))
+            if exchange == "kalshi":
+                pts = markets.kalshi_candles(first["ticker"], start, stop, True) or markets.kalshi_candles(first["ticker"], start, stop, False)
+                times = [c["end_period_ts"] for c in pts]
+                has_book = bool(pts) and "yes_bid" in pts[0] and "yes_ask" in pts[0]
+            else:
+                pts = markets.polymarket_prices(first["token"], start, stop) if first.get("token") else []
+                times = [p["t"] for p in pts]
+                has_book = False  # prices-history is one price series: no bid, ask or size
+            # Older Kalshi markets carry no start time; borrow Polymarket's for the same match when it exists.
+            sched = ev["scheduled_start"] or (d.get("polymarket") or {}).get("scheduled_start")
+            pre = None
+            if sched:
+                t0 = datetime.fromisoformat(sched.replace("Z", "+00:00")).timestamp()
+                pre = any(t0 - 3600 <= t < t0 for t in times)
+            gaps = sorted(b - a for a, b in zip(times, times[1:]))
+            rows.append({"event": ev["event"], "points": len(times), "median_gap_s": gaps[len(gaps) // 2] if gaps else None,
+                         "has_bid_ask": has_book, "scheduled_start": sched, "obs_in_hour_before_start": pre})
+        out[exchange] = rows
+    return out
+
+
 def run(conn: sqlite3.Connection) -> dict:
+    # Probes are recorded, not used as gates: a single timeout should not skip a join that would work.
     probes = {"open_meteo": weather.probe(), "markets": markets.probe()}
-    weather_ok = all(p["reachable"] for p in probes["open_meteo"])
-    markets_ok = all(p["reachable"] for p in probes["markets"])
     model = db.get_meta(conn, "serving_model", "elo_selected")
 
     sample = draw_sample(conn)
-    rows = [{**s, **check_match(conn, s["match_id"], model, weather_ok, markets_ok)} for s in sample]
+    weather_status, forecast_check = join_weather(conn, [s["match_id"] for s in sample])
+    coverage = market_coverage(conn)
+    links = coverage["links"] if coverage else {}
+    rows = [{**s, **check_match(conn, s["match_id"], model, weather_status, links)} for s in sample]
     result = {
         "run_at": config.utcnow(),
         "snapshots": [dict(r) for r in conn.execute("SELECT snapshot_id, source, revision, revision_date, collected_at FROM source_snapshot")],
@@ -269,6 +390,9 @@ def run(conn: sqlite3.Connection) -> dict:
         "population_timestamps": population_timestamps(conn),
         "cross_source": cross_source(conn),
         "sample_summary": summarize_sample(rows),
+        "weather_forecast_check": forecast_check,
+        "market_coverage": coverage["per_exchange"] if coverage else None,
+        "market_price_resolution": price_resolution(links) if coverage else None,
         "sample_match_ids": [r["match_id"] for r in rows],
     }
     out = config.OUTPUT_DIR

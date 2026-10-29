@@ -183,6 +183,17 @@ CREATE TABLE IF NOT EXISTS elo_rating (
     PRIMARY KEY (model, player_id, bucket)
 );
 
+-- Serve/return ratings (logit scale) after replaying all history.
+CREATE TABLE IF NOT EXISTS sr_rating (
+    model          TEXT NOT NULL,
+    player_id      TEXT NOT NULL,
+    kind           TEXT NOT NULL,      -- 'serve' or 'return'
+    mean           REAL NOT NULL,
+    var            REAL NOT NULL,
+    n_matches      INTEGER NOT NULL,   -- matches with a usable stat line
+    PRIMARY KEY (model, player_id, kind)
+);
+
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

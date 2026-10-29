@@ -14,13 +14,87 @@ Excluded from both rating updates and scoring: walkovers, defaults, unknown resu
 | Ranking logistic (β=0.651, fitted on validation) | 19,021 | 63.9% | 0.2203 | 0.6301 | 0.0256 |
 | Elo, overall only | 19,021 | 64.1% | 0.2233 | 0.6410 | 0.0614 |
 | Elo, 50/50 surface blend (FiveThirtyEight-style) | 19,021 | 64.2% | 0.2213 | 0.6339 | 0.0537 |
-| **Elo, selected on validation** | 19,021 | 64.3% | 0.2179 | 0.6241 | 0.0264 |
+| Elo, selected on validation | 19,021 | 64.3% | 0.2179 | 0.6241 | 0.0264 |
+| Serve/return ratings + Markov chain | 19,021 | 65.3% | 0.2244 | 0.6594 | 0.0875 |
+| **Elo + serve/return blend (fitted on validation)** | 19,021 | 65.4% | 0.2136 | 0.6142 | 0.0133 |
 
-Lower is better for Brier, log loss and ECE (expected calibration error, 10 bins). Market baseline: not run: Kalshi and Polymarket hosts are blocked by this environment's network policy.
+Lower is better for Brier, log loss and ECE (expected calibration error, 10 bins). Market baseline: not run yet: needs pre-match checkpoint prices joined at prediction time (next step).
 
-Selected model, completed matches only (retirements removed): Brier 0.2165, log loss 0.6208, n = 18,522.
+Selected Elo, completed matches only (retirements removed): Brier 0.2165, log loss 0.6208, n = 18,522.
 
-## How the model was chosen
+Serving model, chosen by validation log loss among the last three rows: **elo_sr_blend**. Blend: logit p = 0.600 × logit p_Elo + 0.251 × logit p_Markov (coefficients fitted on validation; the blend's validation score is therefore slightly optimistic).
+
+Blend vs selected Elo on the same test matches (positive = blend better): brier gain 0.0043 ± 0.0003 (z = 12.7); log_loss gain 0.0099 ± 0.0008 (z = 12.5).
+
+## Serve/return model
+
+Each player has serve and return ratings on the logit scale; P(A wins a point on serve) = sigmoid(surface average + serve_A − return_B). Each match's serve points won update the ratings by a one-step Bayesian (Laplace) step, so players with few stat lines stay near the pool. The point probabilities go through a game → tiebreak → set → match Markov chain with each event's deciding-set rules (advantage sets, 12–12 and 10-point tiebreaks by Slam and year). Matches without a valid stat line still get a prediction but do not update the ratings.
+
+Prior and drift variances are chosen on the **blend's** validation log loss, because the blend is what is served; per-player surface offsets are then added only if they improve it further (they did).
+
+| prior_var | drift_var | surface_var | Markov alone, validation | Markov alone, test | Blend, validation |
+|---:|---:|---:|---:|---:|---:|
+| 0.00125 | 5e-05 | 0.0 | 0.60822 | 0.63136 | 0.59172 |
+| 0.00125 | 0.0001 | 0.0 | 0.60887 | 0.63230 | 0.59098 |
+| 0.00125 | 0.0002 | 0.0 | 0.61203 | 0.63541 | 0.59040 |
+| 0.00125 | 0.0005 | 0.0 | 0.62160 | 0.64442 | 0.59002 |
+| 0.00125 | 0.001 | 0.0 | 0.63467 | 0.65678 | 0.59002 |
+| 0.0025 | 5e-05 | 0.0 | 0.60832 | 0.63079 | 0.59176 |
+| 0.0025 | 0.0001 | 0.0 | 0.60902 | 0.63195 | 0.59101 |
+| 0.0025 | 0.0002 | 0.0 | 0.61223 | 0.63524 | 0.59043 |
+| 0.0025 | 0.0005 | 0.0 | 0.62183 | 0.64442 | 0.59004 |
+| 0.0025 | 0.001 | 0.0 | 0.63492 | 0.65688 | 0.59003 |
+| 0.005 | 5e-05 | 0.0 | 0.60921 | 0.63086 | 0.59188 |
+| 0.005 | 0.0001 | 0.0 | 0.60984 | 0.63210 | 0.59111 |
+| 0.005 | 0.0002 | 0.0 | 0.61298 | 0.63546 | 0.59051 |
+| 0.005 | 0.0005 | 0.0 | 0.62252 | 0.64473 | 0.59009 |
+| 0.005 | 0.001 | 0.0 | 0.63556 | 0.65724 | 0.59007 |
+| 0.01 | 5e-05 | 0.0 | 0.61148 | 0.63211 | 0.59210 |
+| 0.01 | 0.0001 | 0.0 | 0.61189 | 0.63326 | 0.59132 |
+| 0.01 | 0.0002 | 0.0 | 0.61486 | 0.63657 | 0.59068 |
+| 0.01 | 0.0005 | 0.0 | 0.62419 | 0.64578 | 0.59021 |
+| 0.01 | 0.001 | 0.0 | 0.63708 | 0.65824 | 0.59015 |
+| 0.02 | 5e-05 | 0.0 | 0.61573 | 0.63499 | 0.59243 |
+| 0.02 | 0.0001 | 0.0 | 0.61582 | 0.63592 | 0.59166 |
+| 0.02 | 0.0002 | 0.0 | 0.61851 | 0.63907 | 0.59098 |
+| 0.02 | 0.0005 | 0.0 | 0.62750 | 0.64810 | 0.59043 |
+| 0.02 | 0.001 | 0.0 | 0.64013 | 0.66041 | 0.59030 |
+| 0.04 | 5e-05 | 0.0 | 0.62231 | 0.63971 | 0.59281 |
+| 0.04 | 0.0001 | 0.0 | 0.62207 | 0.64034 | 0.59211 |
+| 0.04 | 0.0002 | 0.0 | 0.62442 | 0.64325 | 0.59143 |
+| 0.04 | 0.0005 | 0.0 | 0.63300 | 0.65205 | 0.59079 |
+| 0.04 | 0.001 | 0.0 | 0.64529 | 0.66419 | 0.59056 |
+| 0.00125 | 0.001 | 0.0005 | 0.63113 | 0.65365 | 0.58935 |
+| 0.00125 | 0.001 | 0.001 | 0.63031 | 0.65285 | 0.58902 |
+| 0.00125 | 0.001 | 0.002 | 0.63042 | 0.65298 | 0.58869 |
+| 0.00125 | 0.001 | 0.004 | 0.63211 | 0.65491 | 0.58844 |
+| 0.00125 | 0.001 | 0.008 | 0.63579 | 0.65941 | 0.58834 |
+| 0.00125 | 0.001 | 0.016 | 0.64162 | 0.66689 | 0.58839 |
+
+Calibration of the serving model (elo_sr_blend), test window:
+
+| Predicted | n | Mean prediction | Observed win rate |
+|---|---:|---:|---:|
+| 0.0–0.1 | 415 | 0.062 | 0.063 |
+| 0.1–0.2 | 1,018 | 0.155 | 0.189 |
+| 0.2–0.3 | 1,943 | 0.254 | 0.260 |
+| 0.3–0.4 | 2,729 | 0.352 | 0.367 |
+| 0.4–0.5 | 3,303 | 0.452 | 0.458 |
+| 0.5–0.6 | 3,419 | 0.549 | 0.535 |
+| 0.6–0.7 | 2,763 | 0.648 | 0.641 |
+| 0.7–0.8 | 1,894 | 0.747 | 0.724 |
+| 0.8–0.9 | 1,116 | 0.844 | 0.824 |
+| 0.9–1.0 | 421 | 0.940 | 0.912 |
+
+By confidence grade (serving model, test window):
+
+| Model | n | Accuracy | Brier | Log loss | ECE |
+|---|---:|---:|---:|---:|---:|
+| high | 10,505 | 66.1% | 0.2093 | 0.6040 | 0.0123 |
+| low | 3,461 | 65.9% | 0.2156 | 0.6217 | 0.0400 |
+| medium | 5,055 | 63.5% | 0.2212 | 0.6303 | 0.0318 |
+
+## How the Elo model was chosen
 
 Greedy forward selection: start from the FiveThirtyEight-style blend, try each single change, adopt the one that most improves **validation** log loss, repeat until nothing improves. Test numbers are shown for transparency only; they played no part in the choice.
 
@@ -91,7 +165,7 @@ Selected configuration: `surface_weight=0.5`, `split_indoor_hard=False`, `new_pl
 
 </details>
 
-## Calibration (selected model, test window)
+## Calibration (selected Elo, test window)
 
 | Predicted | n | Mean prediction | Observed win rate |
 |---|---:|---:|---:|
@@ -106,7 +180,7 @@ Selected configuration: `surface_weight=0.5`, `split_indoor_hard=False`, `new_pl
 | 0.8–0.9 | 1,190 | 0.843 | 0.803 |
 | 0.9–1.0 | 374 | 0.937 | 0.925 |
 
-## By confidence grade (selected model, test window)
+## By confidence grade (selected Elo, test window)
 
 | Model | n | Accuracy | Brier | Log loss | ECE |
 |---|---:|---:|---:|---:|---:|
@@ -114,7 +188,7 @@ Selected configuration: `surface_weight=0.5`, `split_indoor_hard=False`, `new_pl
 | low | 3,461 | 65.4% | 0.2196 | 0.6318 | 0.0534 |
 | medium | 5,055 | 62.2% | 0.2261 | 0.6416 | 0.0478 |
 
-## By tournament level (selected model, test window)
+## By tournament level (selected Elo, test window)
 
 | Model | n | Accuracy | Brier | Log loss | ECE |
 |---|---:|---:|---:|---:|---:|
@@ -127,7 +201,7 @@ Selected configuration: `surface_weight=0.5`, `split_indoor_hard=False`, `new_pl
 | M | 3,892 | 63.1% | 0.2237 | 0.6380 | 0.0341 |
 | O | 127 | 74.0% | 0.1768 | 0.5248 | 0.0845 |
 
-## By surface bucket (selected model, test window)
+## By surface bucket (selected Elo, test window)
 
 | Model | n | Accuracy | Brier | Log loss | ECE |
 |---|---:|---:|---:|---:|---:|
@@ -136,14 +210,14 @@ Selected configuration: `surface_weight=0.5`, `split_indoor_hard=False`, `new_pl
 | Hard | 11,544 | 65.1% | 0.2153 | 0.6186 | 0.0210 |
 | Unknown | 52 | 52.9% | 0.2406 | 0.6712 | 0.1712 |
 
-## By best-of (selected model, test window)
+## By best-of (selected Elo, test window)
 
 | Model | n | Accuracy | Brier | Log loss | ECE |
 |---|---:|---:|---:|---:|---:|
 | 3 | 15,455 | 62.7% | 0.2246 | 0.6397 | 0.0282 |
 | 5 | 3,566 | 70.8% | 0.1890 | 0.5565 | 0.0224 |
 
-## By year (selected model, test window)
+## By year (selected Elo, test window)
 
 | Model | n | Accuracy | Brier | Log loss | ECE |
 |---|---:|---:|---:|---:|---:|
