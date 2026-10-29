@@ -20,7 +20,7 @@ from pathlib import Path
 
 from . import api_tennis, config, db, registry, venues
 from .ingest_charting import NameIndex, find_links, tour_match_index
-from .normalize import norm_name, round_order
+from .normalize import SURFACES, norm_name, round_order
 
 ROUNDS = {"1/64-finals": "R128", "1/32-finals": "R64", "1/16-finals": "R32", "1/8-finals": "R16",
           "quarter-finals": "QF", "semi-finals": "SF", "final": "F"}
@@ -43,6 +43,13 @@ def _near(a: str, b: str) -> bool:
     except ValueError:
         return False
     return da.year == db_.year and abs((da - db_).days) <= 31
+
+
+def _surface(raw: str | None) -> tuple[str | None, str | None]:
+    """API-Tennis "Hard (Indoor)" -> ("Hard", "I"); labels that are not surfaces ("- Play Offs") -> (None, None)."""
+    s = (raw or "").strip()
+    name = s.split("(")[0].strip().capitalize()
+    return (name if name in SURFACES else None), ("I" if "(indoor)" in s.lower() else None)
 
 
 def _clean_name(s: str) -> str:
@@ -98,6 +105,8 @@ def map_players(conn: sqlite3.Connection, api_players: dict[int, dict], preg) ->
         if existing:
             out[k] = existing
             how["registry"] += 1
+            if existing not in bdays:  # minted by an earlier API-Tennis ingest; the TML step rebuilt the player table
+                new_rows.append((existing, full or str(k), norm_name(full), None, None, bday, None, None, 0))
             continue
         cands = names.candidates(full) or names.fuzzy_candidates(full)
         by_bday = {c for c in cands if bday and bdays.get(c) == bday}
@@ -177,8 +186,9 @@ def ingest(conn: sqlite3.Connection, registry_dir: Path | None = None, log=print
         ed_id = ereg.get_or_mint("api_tennis", f"{tkey}:{season}", collected_at)
         dates = sorted(f["event_date"] for f in fs)
         v = vindex.lookup(name, year)
-        ed_rows.append((ed_id, tour_id, f"api:{tkey}:{season}", year, name, level, t.get("tournament_sourface"),
-                        tml["indoor"] if tml and not is_chall else None, None, dates[0], dates[-1], "day",
+        surface, indoor = _surface(t.get("tournament_sourface"))
+        ed_rows.append((ed_id, tour_id, f"api:{tkey}:{season}", year, name, level, surface,
+                        indoor or (tml["indoor"] if tml and not is_chall else None), None, dates[0], dates[-1], "day",
                         v.city if v else None, v.latitude if v else None, v.longitude if v else None,
                         v.elevation_m if v else None, venues.VENUE_SOURCE if v else None, "api_tennis"))
         for f in fs:
@@ -200,7 +210,7 @@ def ingest(conn: sqlite3.Connection, registry_dir: Path | None = None, log=print
                 "winner_src_name": f["event_first_player" if first_won else "event_second_player"],
                 "loser_src_name": f["event_second_player" if first_won else "event_first_player"],
                 "score": _score(f.get("scores"), first_won), "outcome": OUTCOMES[f["event_status"]],
-                "surface": t.get("tournament_sourface"), "indoor": None, "level": level,
+                "surface": surface, "indoor": None, "level": level,
                 "w_svpt": w_sv, "w_1stin": w_in, "w_1stwon": w_1st, "w_2ndwon": w_2nd,
                 "l_svpt": l_sv, "l_1stin": l_in, "l_1stwon": l_1st, "l_2ndwon": l_2nd,
                 "event_date_lo": f["event_date"], "event_date_hi": f["event_date"], "start_time": start,

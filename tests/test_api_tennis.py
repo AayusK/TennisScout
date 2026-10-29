@@ -39,3 +39,14 @@ def test_player_mapping(loaded, tmp_path):
     assert pmap[14] == ext["CCC3"] and pmap[15] == ext["DDD4"]
     assert how["name+birthdate"] == 3 and how["exact_name+near_birthdate"] == 1 and how["new_player"] == 2
     assert len(new_rows) == 2
+    # Re-ingest after the TML step rebuilt the player table: registry hits that lost their row get it back.
+    _, how2, again = ia.map_players(conn, api_players, preg)
+    assert how2["registry"] == 6 and sorted(r[0] for r in again) == sorted(r[0] for r in new_rows)
+
+
+def test_surface_labels():
+    assert ia._surface("Hard (Indoor)") == ("Hard", "I")
+    assert ia._surface("clay") == ("Clay", None)
+    assert ia._surface("Clay (Indoor)") == ("Clay", "I")
+    assert ia._surface("- Play Offs") == (None, None)
+    assert ia._surface(None) == (None, None)

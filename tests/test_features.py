@@ -31,3 +31,18 @@ def test_games_share():
     assert games_share("6-4 3-6 7-6(5)") == 16 / 32
     assert games_share("6-0 6-0") == 1.0
     assert games_share("W/O") is None
+
+
+def test_context_is_symmetric_and_scales_the_logit():
+    from tennisscout.features import ALL, INTERACTIONS, stack_row
+
+    st = FeatureState({}, {})
+    st.update(row("m1", "2024-01-01", "a", "c"))
+    m = MatchRow("m2", 0, 2024, "2024-01-08", "a", "b", "Clay", "O", 5, None, None, "G", "completed", "SF")
+    ctx = st.context(m, "a", "b")
+    assert ctx == st.context(m, "b", "a") and len(ctx) == len(INTERACTIONS)
+    conf, bo5, indoor, clay, grass, slam, masters, late = ctx
+    assert conf == 0.0 and (bo5, indoor, clay, grass, slam, masters, late) == (1, 0, 1, 0, 1, 0, 1)  # b has no prior match
+    vec = st.features(m, "a", "b") + ctx
+    assert len(vec) == len(ALL)
+    assert stack_row(2.0, vec, ["clay", "h2h"]) == [2.0, 2.0, vec[ALL.index("h2h")]]

@@ -64,6 +64,14 @@ def cmd_verify_venues(args) -> None:
         print(" ", r)
 
 
+def cmd_upcoming(args) -> None:
+    from . import upcoming
+
+    for r in upcoming.upcoming(_conn(), args.days):
+        p = f"{r['p_a']:.1%}  [{r['model']}, {r['confidence']}]" if "p_a" in r else f"–  ({r['error']})"
+        print(f"{r['start'][:16]}  {r['tournament']} {r['round']}: {r['player_a']} vs {r['player_b']}  P({r['player_a']}) = {p}")
+
+
 def cmd_report(args) -> None:
     for p in report.write(_conn()):
         print("wrote", p)
@@ -153,6 +161,9 @@ def main(argv: list[str] | None = None) -> None:
     b.add_argument("-v", "--verbose", action="store_true")
     b.set_defaults(func=cmd_backtest)
     sub.add_parser("audit", help="run the data audit").set_defaults(func=cmd_audit)
+    up = sub.add_parser("upcoming", help="scheduled ATP matches from API-Tennis with predictions (needs API_TENNIS_KEY)")
+    up.add_argument("--days", type=int, default=2)
+    up.set_defaults(func=cmd_upcoming)
     sub.add_parser("verify-venues", help="check venue elevations and timezones against Open-Meteo (128 calls)").set_defaults(func=cmd_verify_venues)
     sub.add_parser("report", help="write docs/backtest.md and docs/data-audit.md").set_defaults(func=cmd_report)
     a = sub.add_parser("all", help="ingest, backtest, audit, report")

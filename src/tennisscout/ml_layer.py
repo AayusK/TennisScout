@@ -19,7 +19,7 @@ from .backtest import PredRecord, paired_gain, safe_logit, score, window
 from .features import NAMES
 
 GRID = list(itertools.product((150, 300, 600), (4, 8, 16), (0.02, 0.04)))  # rounds, leaves, learning rate
-N_ANTI = 4 + len(NAMES)  # logits and player-1-minus-player-2 features flip sign when the players swap
+N_ANTI = 4 + len(NAMES)  # logits and player-1-minus-player-2 features flip sign when the players swap; context after them does not
 
 
 def available() -> bool:

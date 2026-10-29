@@ -62,6 +62,16 @@ def predict_match(
         raise HTTPException(400, {"error": str(e)})
 
 
+@app.get("/upcoming")
+def upcoming_matches(days: int = Query(2, ge=0, le=7)):
+    from . import upcoming
+
+    try:
+        return upcoming.upcoming(_conn(), days)
+    except RuntimeError as e:  # no API key, or API-Tennis refused the call
+        raise HTTPException(503, {"error": str(e)})
+
+
 @app.get("/backtest")
 def backtest_summary():
     conn = _conn()

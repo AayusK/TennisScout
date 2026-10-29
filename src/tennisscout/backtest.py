@@ -368,7 +368,7 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
     # Judged on 2021-22, where that data exists; 2023 on and the forward window stay untouched by it.
     data_variants = {"tour_only": (matches, selected)}
     if len(all_matches) > len(matches):
-        for w in (1.0, 0.5):
+        for w in (1.5, 1.0, 0.5):
             data_variants[f"with_challenger_k{w}"] = (all_matches, selected.with_(challenger_k_weight=w))
     data_results, variant_preds = {}, {}
     for name, (ms, ecfg) in data_variants.items():
@@ -603,19 +603,15 @@ def scoreline_check(matches: list[MatchRow], cfg: SRConfig, dates=TEST, form_sd:
 
 def stack_experiment(conn, matches: list[MatchRow], base: list[PredRecord], windows: dict, log=print) -> dict:
     """Greedy feature selection on validation for a logistic layer on top of the served model."""
-    from .features import NAMES, replay_features
+    from .features import ALL, replay_features
 
     feats = replay_features(conn, matches, START_YEAR)
 
     def rows(preds, chosen):
-        return [[safe_logit(p.p1)] + [feats[p.match_id][NAMES.index(f)] for f in chosen] for p in preds]
+        return [_stack_x(p, feats, chosen) for p in preds]
 
     def apply(preds, chosen, coef):
-        out = []
-        for p, x in zip(preds, rows(preds, chosen)):
-            z = sum(c * v for c, v in zip(coef, x))
-            out.append(replace(p, p1=1 / (1 + math.exp(-z))))
-        return out
+        return _stack_apply(preds, feats, chosen, coef)
 
     val = window(base, VALIDATION)
     ys = [p.y for p in val]
@@ -625,7 +621,7 @@ def stack_experiment(conn, matches: list[MatchRow], base: list[PredRecord], wind
     trail = [{"features": [], "validation": best}]
     while True:
         trials = []
-        for f in NAMES:
+        for f in ALL:
             if f in chosen:
                 continue
             c = fit_logistic(rows(val, chosen + [f]), ys)
@@ -648,9 +644,9 @@ def stack_experiment(conn, matches: list[MatchRow], base: list[PredRecord], wind
 
 
 def _stack_x(p: PredRecord, feats: dict, chosen: list[str]) -> list[float]:
-    from .features import NAMES
+    from .features import stack_row
 
-    return [safe_logit(p.p1)] + [feats[p.match_id][NAMES.index(f)] for f in chosen]
+    return stack_row(safe_logit(p.p1), feats[p.match_id], chosen)
 
 
 def _stack_apply(preds: list[PredRecord], feats: dict, chosen: list[str], coef: list[float]) -> list[PredRecord]:

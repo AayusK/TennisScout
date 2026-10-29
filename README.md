@@ -43,7 +43,15 @@ tennisscout predict "Jannik Sinner" "Carlos Alcaraz" --surface Clay --best-of 5
 ```
 
 ```bash
-tennisscout serve          # FastAPI on :8000 — /predict, /players/search, /backtest, /health
+API_TENNIS_KEY=... tennisscout upcoming --days 2   # scheduled ATP matches with the served prediction
+```
+
+```bash
+tennisscout serve          # FastAPI on :8000 — /predict, /upcoming, /players/search, /backtest, /health
+```
+
+```bash
+tennisscout verify-venues  # check metadata/venues.csv elevations and timezones against Open-Meteo
 ```
 
 ```bash

@@ -13,6 +13,12 @@ player 2" so a logistic layer without intercept stays symmetric.
 * exp: log(1 + prior matches), all levels
 * switch: +1 if only player 1's previous match was on another surface, -1 if only player 2's
 * travel: hours of time-zone shift (longitude / 15) since the previous venue, when both venues are known
+
+Interaction terms (symmetric match context; the stack multiplies each by the blend logit, so they
+rescale confidence rather than favour a side):
+
+* conf: log(1 + prior matches of the less experienced player); ratings of newcomers are noisier
+* bo5, indoor, clay, grass, slam, masters, late (quarter-final or later): 0/1 flags
 """
 
 from __future__ import annotations
@@ -23,6 +29,14 @@ from collections import defaultdict, deque
 from datetime import date
 
 NAMES = ("age", "lefty", "h2h", "rest", "load", "home", "exp", "switch", "travel")
+INTERACTIONS = ("conf", "bo5", "indoor", "clay", "grass", "slam", "masters", "late")
+ALL = NAMES + INTERACTIONS
+
+
+def stack_row(logit: float, vec: list[float], chosen) -> list[float]:
+    """Design row of the stacking layer: blend logit, chosen differences, and logit x context for interactions."""
+    return [logit] + [vec[ALL.index(f)] * (logit if f in INTERACTIONS else 1.0) for f in chosen]
+
 
 def player_info(conn: sqlite3.Connection) -> dict[str, tuple[date | None, str | None, str | None]]:
     out = {}
@@ -92,6 +106,12 @@ class FeatureState:
         return [age, float(lefty), h2h, rest(a) - rest(b), float(load(a) - load(b)), float(home),
                 exp, float(switched(a)) - float(switched(b)), travel(a) - travel(b)]
 
+    def context(self, m, a: str, b: str) -> list[float]:
+        s, lvl = (getattr(m, "surface", None) or "").capitalize(), getattr(m, "level", None)
+        return [math.log1p(min(self.n[a], self.n[b])), float(getattr(m, "best_of", None) == 5),
+                float(getattr(m, "indoor", None) == "I"), float(s == "Clay"), float(s == "Grass"), float(lvl == "G"),
+                float(lvl == "M"), float(getattr(m, "round", None) in ("QF", "SF", "F"))]
+
     def update(self, m) -> None:
         d = date.fromisoformat(m.date)
         _, lon = self.hosts.get(getattr(m, "match_id", None), (None, None))
@@ -110,7 +130,7 @@ class FeatureState:
 
 
 def replay_features(conn: sqlite3.Connection, matches, score_from_year: int) -> dict[str, list[float]]:
-    """Feature vector (player 1 minus player 2, same orientation as the backtest) per scored match."""
+    """Feature vector in ``ALL`` order (differences are player 1 minus player 2, as in the backtest) per scored match."""
     from .backtest import _orient
 
     state = FeatureState(player_info(conn), edition_country(conn))
@@ -118,6 +138,6 @@ def replay_features(conn: sqlite3.Connection, matches, score_from_year: int) -> 
     for m in matches:
         if m.scored and m.year >= score_from_year:
             a, b, *_ = _orient(m)
-            out[m.match_id] = state.features(m, a, b)
+            out[m.match_id] = state.features(m, a, b) + state.context(m, a, b)
         state.update(m)
     return out
