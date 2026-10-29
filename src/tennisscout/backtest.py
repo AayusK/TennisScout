@@ -368,7 +368,7 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
     # Judged on 2021-22, where that data exists; 2023 on and the forward window stay untouched by it.
     data_variants = {"tour_only": (matches, selected)}
     if len(all_matches) > len(matches):
-        for w in (1.5, 1.0, 0.5):
+        for w in (2.0, 1.5, 1.0, 0.5):
             data_variants[f"with_challenger_k{w}"] = (all_matches, selected.with_(challenger_k_weight=w))
     data_results, variant_preds = {}, {}
     for name, (ms, ecfg) in data_variants.items():

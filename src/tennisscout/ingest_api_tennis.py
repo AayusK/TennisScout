@@ -52,6 +52,24 @@ def _surface(raw: str | None) -> tuple[str | None, str | None]:
     return (name if name in SURFACES else None), ("I" if "(indoor)" in s.lower() else None)
 
 
+TML_NAMES = {"London": "Queen's Club", "French Open": "Roland Garros", "Montreal": "Canada Masters", "Toronto": "Canada Masters", "Hertogenbosch": "'s-Hertogenbosch"}
+
+
+def tml_event(hist: dict, name: str, year: int) -> tuple[str | None, str | None, str | None]:
+    """(majority surface, latest level, latest indoor) of the same event's TML editions in the three prior seasons.
+
+    API-Tennis keeps one surface per tournament key (Stuttgart, grass since 2015, is still "Clay"), and a bare
+    name can hit an old event (London 2000, indoor), so only recent editions of the event count.
+    """
+    keys = {norm_name(TML_NAMES.get(name, name)), norm_name(f"{name} Masters")}
+    rows = [r for k in keys for r in hist.get(k, ()) if 0 < year - r["year"] <= 3]
+    if not rows:
+        return None, None, None
+    surfaces = Counter(r["surface"] for r in rows if r["surface"])
+    last = max(rows, key=lambda r: r["year"])
+    return (surfaces.most_common(1)[0][0] if surfaces else None), last["level"], last["indoor"]
+
+
 def _clean_name(s: str) -> str:
     s = (s or "").strip()
     return s[4:] if s.upper().startswith("ATP ") else s
@@ -149,10 +167,9 @@ def ingest(conn: sqlite3.Connection, registry_dir: Path | None = None, log=print
     ereg, mreg = registry.editions(registry_dir), registry.matches(registry_dir)
     pmap, how, new_players = map_players(conn, api_players, preg)
 
-    # TML editions by name, for level / indoor / best-of of the same event.
-    tml_by_name: dict[str, sqlite3.Row] = {}
-    for r in conn.execute("SELECT name, level, indoor, year FROM tournament_edition ORDER BY year"):
-        tml_by_name[norm_name(r["name"])] = r
+    tml_hist: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    for r in conn.execute("SELECT name, level, indoor, year, surface FROM tournament_edition WHERE snapshot_id != 'api_tennis'"):
+        tml_hist[norm_name(r["name"])].append(r)
     vindex = venues.VenueIndex(venues.load())
 
     editions: dict[tuple, list[dict]] = defaultdict(list)
@@ -178,17 +195,18 @@ def ingest(conn: sqlite3.Connection, registry_dir: Path | None = None, log=print
         if not is_chall and max(f["event_date"] for f in fs) <= tml_end:
             continue  # TML holds this edition
         year = int(season) if str(season).isdigit() else int(fs[0]["event_date"][:4])
-        tml = tml_by_name.get(norm_name(name))
+        surface, indoor = _surface(t.get("tournament_sourface"))
+        t_surface, t_level, t_indoor = (None, None, None) if is_chall else tml_event(tml_hist, name, year)
+        surface, indoor = t_surface or surface, indoor or t_indoor
         slam = any(s in name.lower() for s in SLAMS)
-        level = "C" if is_chall else ("G" if slam else (tml["level"] if tml else "A"))
+        level = "C" if is_chall else ("G" if slam else (t_level or "A"))
         tour_id = treg.get_or_mint("api_tennis", str(tkey), collected_at)
         tour_seen[tour_id] = name
         ed_id = ereg.get_or_mint("api_tennis", f"{tkey}:{season}", collected_at)
         dates = sorted(f["event_date"] for f in fs)
         v = vindex.lookup(name, year)
-        surface, indoor = _surface(t.get("tournament_sourface"))
         ed_rows.append((ed_id, tour_id, f"api:{tkey}:{season}", year, name, level, surface,
-                        indoor or (tml["indoor"] if tml and not is_chall else None), None, dates[0], dates[-1], "day",
+                        indoor, None, dates[0], dates[-1], "day",
                         v.city if v else None, v.latitude if v else None, v.longitude if v else None,
                         v.elevation_m if v else None, venues.VENUE_SOURCE if v else None, "api_tennis"))
         for f in fs:

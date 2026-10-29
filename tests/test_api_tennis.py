@@ -50,3 +50,18 @@ def test_surface_labels():
     assert ia._surface("Clay (Indoor)") == ("Clay", "I")
     assert ia._surface("- Play Offs") == (None, None)
     assert ia._surface(None) == (None, None)
+
+
+def test_tml_event_uses_recent_editions_of_the_same_event():
+    def ed(year, surface, level="250", indoor="O"):
+        return {"year": year, "surface": surface, "level": level, "indoor": indoor}
+
+    hist = {"stuttgart": [ed(2023, "Grass"), ed(2024, "Grass"), ed(2025, "Grass")],
+            "santiago": [ed(2023, "Clay"), ed(2024, "Clay"), ed(2025, "Hard")],  # one bad source row
+            "london": [ed(2000, "Hard", "500", "I")], "queens club": [ed(2025, "Grass", "500")],
+            "indian wells masters": [ed(2025, "Hard", "M")]}
+    assert ia.tml_event(hist, "Stuttgart", 2026) == ("Grass", "250", "O")
+    assert ia.tml_event(hist, "Santiago", 2026)[0] == "Clay"
+    assert ia.tml_event(hist, "London", 2026) == ("Grass", "500", "O")
+    assert ia.tml_event(hist, "Indian Wells", 2026) == ("Hard", "M", "O")
+    assert ia.tml_event(hist, "Nowhere", 2026) == (None, None, None)

@@ -4,7 +4,8 @@ LightGBM learns a correction on top of the served stack's logit from the
 model components, the context features and a few match flags. Each match is
 used from both players' sides so the correction is antisymmetric. It is
 chosen inside validation only: fit on 2014-16, compared with the logistic
-stack on 2017-18, and adopted only if it wins there; then refit on 2014-18.
+stack on 2017-18, and adopted only if it wins there by more than two paired
+standard errors; then refit on 2014-18.
 
 ``lightgbm`` and ``numpy`` are optional (``pip install -e .[ml]``); without them
 the logistic stack is served.
@@ -69,13 +70,16 @@ def run(stacked: list[PredRecord], rows: dict[str, list[float]], validation: tup
     Xa, ya = mat(inner_fit)
     Xb, yb = mat(inner_eval)
     base = score(inner_eval)["log_loss"]
-    trials = {}
+    trials, probs = {}, {}
     for params in GRID:
-        p = predict(fit(Xa, ya, *params), Xb)
+        probs[params] = p = predict(fit(Xa, ya, *params), Xb)
         trials[params] = -float(np.mean(yb * np.log(p) + (1 - yb) * np.log(1 - p)))
     best = min(trials, key=trials.get)
-    log(f"  ml layer: inner 2017-18 log loss {trials[best]:.5f} with {best} vs stack {base:.5f}")
-    result = {"inner_stack": base, "inner_gbm": trials[best], "params": best, "adopted": trials[best] < base - 1e-4}
+    gain = paired_gain(inner_eval, [PredRecord(**{**r.__dict__, "p1": float(q)}) for r, q in zip(inner_eval, probs[best])])["log_loss"]
+    log(f"  ml layer: inner 2017-18 log loss {trials[best]:.5f} with {best} vs stack {base:.5f} (gain {gain['gain']:.5f} ± {gain['se']:.5f})")
+    # The best of len(GRID) settings beats the stack by luck alone, so demand a clear paired win.
+    result = {"inner_stack": base, "inner_gbm": trials[best], "params": best, "inner_gain": gain,
+              "adopted": gain["gain"] > 2 * gain["se"]}
     if not result["adopted"]:
         return result, None, None
     val = window(stacked, validation)
