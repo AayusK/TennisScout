@@ -65,3 +65,13 @@ def test_market_coverage_links_and_guards(loaded, monkeypatch):
     assert k["settled_winner_vs_tml"] == {"agrees": 2}
     # The pre-main-draw Polymarket event stays unlinked.
     assert p["status"]["linked"] == 1 and p["status"]["no_tour_match"] == 1
+
+
+def test_kalshi_fee_and_checkpoint_lookup():
+    from tennisscout.market_eval import at, kalshi_fee
+
+    assert kalshi_fee(0.5) == 0.02  # 0.07 * 0.25 = 0.0175 -> 2 cents
+    assert kalshi_fee(0.9) == 0.01
+    series = [(100, 0.4), (200, 0.5), (300, 0.6)]
+    assert at(series, 250) == (200, 0.5)
+    assert at(series, 50) is None

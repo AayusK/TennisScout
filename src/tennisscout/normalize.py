@@ -131,3 +131,14 @@ def to_float(s: str | None) -> float | None:
         return float(s)
     except ValueError:
         return None
+
+
+_SET = re.compile(r"(\d+)-(\d+)")
+
+
+def games_share(score: str | None) -> float | None:
+    """Winner's share of games in a result string ("6-4 3-6 7-6(5)" -> 16/32); None if unparsable."""
+    won = lost = 0
+    for a, b in _SET.findall(re.sub(r"\(\d+\)", "", score or "")):
+        won, lost = won + int(a), lost + int(b)
+    return won / (won + lost) if won + lost else None

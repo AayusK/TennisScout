@@ -36,6 +36,15 @@ def _bday(s: str | None) -> str | None:
     return f"{y}{m}{d}"
 
 
+def _near(a: str, b: str) -> bool:
+    """Same year and at most 31 days apart (YYYYMMDD strings)."""
+    try:
+        da, db_ = date(int(a[:4]), int(a[4:6]), int(a[6:])), date(int(b[:4]), int(b[4:6]), int(b[6:]))
+    except ValueError:
+        return False
+    return da.year == db_.year and abs((da - db_).days) <= 31
+
+
 def _clean_name(s: str) -> str:
     s = (s or "").strip()
     return s[4:] if s.upper().startswith("ATP ") else s
@@ -76,6 +85,9 @@ def map_players(conn: sqlite3.Connection, api_players: dict[int, dict], preg) ->
     """API player key -> internal player ID; returns the map, method counts and new player rows."""
     names = NameIndex.from_db(conn)
     bdays = {r[0]: r[1] for r in conn.execute("SELECT player_id, birthdate FROM player")}
+    bday_index: dict[str, list[tuple[str, set[str]]]] = defaultdict(list)
+    for r in conn.execute("SELECT player_id, name_norm, birthdate FROM player WHERE birthdate IS NOT NULL"):
+        bday_index[r[2]].append((r[0], {t for t in r[1].split() if len(t) > 2}))
     out, how, new_rows = {}, Counter(), []
     keys = sorted(api_players)
     for k in keys:
@@ -91,10 +103,17 @@ def map_players(conn: sqlite3.Connection, api_players: dict[int, dict], preg) ->
         by_bday = {c for c in cands if bday and bdays.get(c) == bday}
         exact = names.candidates(full)
         pid = None
+        tokens = {t for t in norm_name(full).split() if len(t) > 2}
+        same_day = [pid_ for pid_, toks in bday_index.get(bday, ()) if toks & tokens] if bday else []
+        only = next(iter(exact)) if len(exact) == 1 else None
         if len(by_bday) == 1:
             pid, method = next(iter(by_bday)), "name+birthdate"
-        elif len(exact) == 1 and not (bday and bdays.get(next(iter(exact))) and bdays[next(iter(exact))] != bday):
-            pid, method = next(iter(exact)), "exact_name"
+        elif only and not (bday and bdays.get(only) and bdays[only] != bday):
+            pid, method = only, "exact_name"
+        elif only and bday and bdays.get(only) and _near(bdays[only], bday):
+            pid, method = only, "exact_name+near_birthdate"  # a typo in one source's birthdate
+        elif len(same_day) == 1:
+            pid, method = same_day[0], "birthdate+surname_token"  # reordered names ("John Wolf Jeffrey")
         if pid:
             preg.alias(pid, "api_tennis", str(k))
             how[method] += 1

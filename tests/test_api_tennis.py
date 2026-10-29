@@ -27,6 +27,8 @@ def test_player_mapping(loaded, tmp_path):
         11: {"player_full_name": "John Smith", "player_bday": "01.01.1992"},  # homonym, birthdate picks one
         12: {"player_full_name": "Ben Beta", "player_bday": "05.05.1990"},  # same name, different birthdate
         13: {"player_full_name": "Zed Newcomer", "player_bday": None},  # not in our data
+        14: {"player_full_name": "Gamma Carl", "player_bday": "03.03.1997"},  # reordered name, same birthdate
+        15: {"player_full_name": "Dan Delta", "player_bday": "14.04.1996"},  # birthdate typo (04.04 in our data)
     }
     pmap, how, new_rows = ia.map_players(conn, api_players, preg)
     ext = dict(conn.execute("SELECT external_id, player_id FROM player_external_id WHERE source = 'atp'").fetchall())
@@ -34,5 +36,6 @@ def test_player_mapping(loaded, tmp_path):
     assert pmap[11] == ext["FFF6"]
     assert pmap[12] not in ext.values()  # a different Ben Beta gets his own ID
     assert pmap[13] not in ext.values()
-    assert how["name+birthdate"] == 2 and how["new_player"] == 2
+    assert pmap[14] == ext["CCC3"] and pmap[15] == ext["DDD4"]
+    assert how["name+birthdate"] == 3 and how["exact_name+near_birthdate"] == 1 and how["new_player"] == 2
     assert len(new_rows) == 2

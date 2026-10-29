@@ -32,6 +32,7 @@ from dataclasses import asdict, dataclass, replace
 
 from . import db, metrics
 from .elo import OVERALL, EloConfig, EloModel, confidence
+from .normalize import games_share
 from .serve_return import ServeReturnModel, SRConfig
 from .serve_return import confidence as sr_confidence
 
@@ -40,6 +41,7 @@ TEST = ("2019-01-01", "2026-01-21")  # run() replaces the end with the TML cover
 DATA_DECISION = ("2021-01-01", "2022-12-31")  # where Challenger data exists to judge it
 EXCLUDED_OUTCOMES = ("walkover", "default", "unknown")
 UNRANKED = 2000
+MEAN_GAMES_SHARE = 0.618  # winner's average share of games, tour matches since 2000
 
 
 @dataclass(frozen=True)
@@ -134,6 +136,8 @@ def replay(matches: Iterable[MatchRow], cfg: EloConfig, score_from_year: int, mo
                            pred.bucket, m.best_of, m.outcome, ra, rb, m.date)
             )
         weight = cfg.challenger_k_weight if m.level == "C" else 1.0
+        if cfg.mov:
+            weight *= ((games_share(m.score) or MEAN_GAMES_SHARE) / MEAN_GAMES_SHARE) ** cfg.mov
         model.update(m.winner_id, m.loser_id, m.surface, m.indoor, m.rank_w, m.rank_l, m.date, weight)
     return out, model
 
@@ -249,6 +253,10 @@ CANDIDATE_CHANGES: list[tuple[str, dict]] = [
     ("k_shape=0.5", {"k_shape": 0.5}),
     ("k_num=200", {"k_num": 200.0}),
     ("k_num=300", {"k_num": 300.0}),
+    ("margin of victory, linear", {"mov": 1.0}),
+    ("margin of victory, squared", {"mov": 2.0}),
+    ("layoff boost 0.5", {"layoff_boost": 0.5}),
+    ("layoff boost 1.0", {"layoff_boost": 1.0}),
 ] + [(f"prediction scale x{s:.1f}", {"pred_scale": s}) for s in (1.1, 1.2, 1.3, 1.4, 1.5, 1.6)]
 
 
@@ -292,7 +300,7 @@ def forward_selection(matches: list[MatchRow], log=print, test=TEST):
 def paired_gain(base: list[PredRecord], new: list[PredRecord]) -> dict:
     """Per-match Brier and log-loss improvement of ``new`` over ``base``, with standard errors."""
     out = {"n": len(base)}
-    for name, loss in (("brier", lambda p, y: (p - y) ** 2), ("log_loss", lambda p, y: -math.log(p if y else 1 - p))):
+    for name, loss in (("brier", lambda p, y: (p - y) ** 2), ("log_loss", lambda p, y: -math.log(max(p if y else 1 - p, metrics.EPS)))):
         d = [loss(b.p1, b.y) - loss(n.p1, n.y) for b, n in zip(base, new)]
         mean = sum(d) / len(d)
         se = (sum((x - mean) ** 2 for x in d) / (len(d) - 1) / len(d)) ** 0.5
@@ -348,7 +356,11 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
         sr_grid.append(_sr_candidate(matches, SRConfig(**best["config"]).with_(form_sd=form_sd), preds_sel, test))
         log(f"  serve/return form_sd={form_sd}: blend {sr_grid[-1]['blend_validation']['log_loss']:.5f}, "
             f"alone {sr_grid[-1]['validation']['log_loss']:.5f}")
-    best = min(sr_grid, key=lambda g: g["blend_validation"]["log_loss"])
+    # The blend is nearly indifferent to form_sd (it rescales the Markov input), so among settings within
+    # 1e-4 of the best blend score take the one whose Markov model is best on its own: that is the model
+    # behind the set-score and tiebreak predictions.
+    top = min(g["blend_validation"]["log_loss"] for g in sr_grid)
+    best = min((g for g in sr_grid if g["blend_validation"]["log_loss"] <= top + 1e-4), key=lambda g: g["validation"]["log_loss"])
     sr_cfg, coef = SRConfig(**best["config"]), best["coef"]
 
     # Data decision: do Challenger / qualifying results (updates only) help tour-level predictions?
@@ -397,6 +409,10 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
         return out
 
     fwd_serving = window(candidates[serving], forward)
+    stack = stack_experiment(conn, all_matches if data_choice != "tour_only" else matches, candidates[serving],
+                             {"test": test, "test_2023_on": after_decision, "forward": forward}, log)
+    scorelines = {name: scoreline_check(all_matches if data_choice != "tour_only" else matches, sr_cfg, rng)
+                  for name, rng in (("test", test), ("forward", forward))}
     completed_only = [p for p in test_sel if p.outcome == "completed"]
     result = {
         "validation_years": VALIDATION,
@@ -428,6 +444,8 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
         "test_serving_by_confidence": breakdown(window(candidates[serving], test), lambda p: p.confidence),
         "test_serving_calibration": metrics.calibration([p.p1 for p in window(candidates[serving], test)], ys),
         "forward_serving_calibration": metrics.calibration([p.p1 for p in fwd_serving], [p.y for p in fwd_serving]) if fwd_serving else None,
+        "stack_experiment": stack,
+        "scoreline_check": scorelines,
     }
     save(conn, selected, preds_sel, model_sel, result)
     save_sr(conn, sr_cfg, model_sr, {"serve_return": preds_sr, "elo_sr_blend": preds_blend}, coef, serving)
@@ -508,3 +526,49 @@ def scoreline_check(matches: list[MatchRow], cfg: SRConfig, dates=TEST) -> dict:
                           "calibration": metrics.calibration(ps, ys, bins=5)},
         "tiebreaks_per_match": {"pred": sum(r[2] for r in rows) / len(rows), "observed": sum(r[3] for r in rows) / len(rows)},
     }
+
+
+def stack_experiment(conn, matches: list[MatchRow], base: list[PredRecord], windows: dict, log=print) -> dict:
+    """Greedy feature selection on validation for a logistic layer on top of the served model."""
+    from .features import NAMES, replay_features
+
+    feats = replay_features(conn, matches, START_YEAR)
+
+    def rows(preds, chosen):
+        return [[safe_logit(p.p1)] + [feats[p.match_id][NAMES.index(f)] for f in chosen] for p in preds]
+
+    def apply(preds, chosen, coef):
+        out = []
+        for p, x in zip(preds, rows(preds, chosen)):
+            z = sum(c * v for c, v in zip(coef, x))
+            out.append(replace(p, p1=1 / (1 + math.exp(-z))))
+        return out
+
+    val = window(base, VALIDATION)
+    ys = [p.y for p in val]
+    chosen: list[str] = []
+    coef = fit_logistic(rows(val, chosen), ys)
+    best = score(apply(val, chosen, coef))["log_loss"]
+    trail = [{"features": [], "validation": best}]
+    while True:
+        trials = []
+        for f in NAMES:
+            if f in chosen:
+                continue
+            c = fit_logistic(rows(val, chosen + [f]), ys)
+            trials.append((score(apply(val, chosen + [f], c))["log_loss"], f, c))
+        if not trials:
+            break
+        ll, f, c = min(trials)
+        log(f"  stack + {f}: validation log loss {ll:.5f} (was {best:.5f})")
+        if ll >= best - 1e-4:
+            break
+        chosen, coef, best = chosen + [f], c, ll
+        trail.append({"features": list(chosen), "validation": ll})
+    stacked = apply(base, chosen, coef)
+    res = {"features": chosen, "coef": coef, "trail": trail}
+    for name, rng in windows.items():
+        b, s_ = window(base, rng), window(stacked, rng)
+        if b:
+            res[name] = {"base": score(b), "stacked": score(s_), "gain": paired_gain(b, s_)}
+    return res

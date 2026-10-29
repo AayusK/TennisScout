@@ -19,7 +19,7 @@ import csv
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import config
+from . import config, http
 
 VENUE_SOURCE = "manual_seed_unverified"
 
@@ -72,3 +72,32 @@ class VenueIndex:
             if v.year_from <= year <= v.year_to:
                 return v
         return None
+
+
+# Coarse region expected for each seed country's timezone; catches swapped or mistyped coordinates.
+REGION = {
+    "AUS": "Australia/", "NZL": "Pacific/", "USA": "America/", "CAN": "America/", "MEX": "America/", "ARG": "America/",
+    "BRA": "America/", "CHI": "America/", "CHN": "Asia/", "HKG": "Asia/", "JPN": "Asia/", "KOR": "Asia/", "KAZ": "Asia/",
+    "IND": "Asia/", "QAT": "Asia/", "UAE": "Asia/", "KSA": "Asia/", "ISR": "Asia/", "SGP": "Asia/", "MAR": "Africa/",
+}
+
+
+def verify(tolerance_m: float = 60.0) -> list[dict]:
+    """Check each seed row against Open-Meteo: terrain elevation at the coordinates and the timezone's region."""
+    out = []
+    for v in load():
+        if v.latitude is None:
+            continue
+        r = http.get("https://archive-api.open-meteo.com/v1/archive", {
+            "latitude": v.latitude, "longitude": v.longitude, "start_date": "2024-06-01", "end_date": "2024-06-01",
+            "daily": "temperature_2m_max", "timezone": "auto"})
+        if not r.ok:
+            out.append({"venue": v.tourney_name, "year_from": v.year_from, "status": r.error})
+            continue
+        b = r.json()
+        dem, tz = b.get("elevation"), b.get("timezone", "")
+        region = REGION.get(v.country, "Europe/")
+        ok_elev = dem is not None and v.elevation_m is not None and abs(v.elevation_m - dem) <= max(tolerance_m, 0.25 * dem)
+        out.append({"venue": v.tourney_name, "year_from": v.year_from, "city": v.city, "seed_m": v.elevation_m, "dem_m": dem,
+                    "timezone": tz, "elevation_ok": ok_elev, "region_ok": tz.startswith(region), "status": "checked"})
+    return out

@@ -68,3 +68,15 @@ def test_rank_prior_does_not_inflate_the_pool():
     assert debut != cfg.initial  # the prior is active for this bucket
     assert abs(debut - cfg.initial) < 400  # bounded offset, no runaway
     assert m.rating[("star", OVERALL)] < 3000
+
+
+def test_layoff_boost_moves_returning_players_more():
+    def after_break(boost):
+        m = EloModel(EloConfig(layoff_boost=boost))
+        for i in range(10):
+            m.update("a", f"x{i}", "Hard", "O", date="2024-01-01")
+        before = m.rating[("a", OVERALL)]
+        m.update("y", "a", "Hard", "O", date="2025-03-01")  # back after 14 months, loses
+        return before - m.rating[("a", OVERALL)]
+
+    assert after_break(1.0) == pytest.approx(2 * after_break(0.0))

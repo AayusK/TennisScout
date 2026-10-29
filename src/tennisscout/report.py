@@ -31,11 +31,14 @@ def backtest_md(r: dict) -> str:
     v, t = r["validation_years"], r["test_years"]
     h = r["test_headline"]
     cfg = r["selected_config"]
-    L = [HEADER, "# Backtest: pre-match surface Elo", ""]
+    L = [HEADER, "# Backtest: pre-match win probability", ""]
     L += [
-        f"Chronological replay of {r['n_scorable_matches']:,} tour-level singles matches (TML-Database, 1968 onward). "
-        f"Each match is predicted from ratings that have absorbed only earlier matches, then it updates them. "
-        f"Model choices were made on **{v[0]}–{v[1]}** (validation) and scored once on **{t[0]}–{t[1]}** (test).",
+        f"Chronological replay of {r.get('n_usable_matches', r['n_scorable_matches']):,} singles matches "
+        f"(TML-Database 1968–Jan 2026, API-Tennis ATP after that and Challenger/qualifying from 2019), of which "
+        f"{r['n_scorable_matches']:,} are tour-level main draw and are the only ones scored. Each match is predicted "
+        "from ratings that have absorbed only earlier matches, then it updates them. "
+        f"Model choices were made on **{v[0]} – {v[1]}** (validation) and scored on **{t[0]} – {t[1]}** (test). "
+        + (f"The **forward** window ({r['forward_window'][0]} on) is API-Tennis data that no choice ever saw." if r.get("forward_window") else ""),
         "",
         "Excluded from both rating updates and scoring: walkovers, defaults, unknown results, and every row whose "
         "player identity failed a check (ID/name conflict, unknown or missing ID, placeholder player).",
@@ -52,10 +55,58 @@ def backtest_md(r: dict) -> str:
         ("Serve/return ratings + Markov chain", h["serve_return"]),
         ("**Elo + serve/return blend (fitted on validation)**", h["elo_sr_blend"]),
     ])
+    fh = r.get("forward_headline")
+    if fh:
+        L += ["", f"## Forward holdout ({r['forward_window'][0]} on, tour main draw, never used for any choice)", ""]
+        L += _metrics_table([
+            ("Coin flip", fh["coin_flip"]),
+            ("Elo, overall only", fh["elo_overall"]),
+            ("Elo, 50/50 surface blend", fh["elo_538_blend"]),
+            ("Elo, selected", fh["elo_selected"]),
+            ("Serve/return + Markov", fh["serve_return"]),
+            ("**Elo + serve/return blend (served)**", fh["elo_sr_blend"]),
+        ])
+        fg = r["forward_blend_vs_elo"]
+        L += ["", "Rankings are not in the API-Tennis feed, so there is no ranking baseline here. Blend vs Elo on these "
+              f"matches: Brier gain {fg['brier']['gain']:.4f} ± {fg['brier']['se']:.4f}, log-loss gain "
+              f"{fg['log_loss']['gain']:.4f} ± {fg['log_loss']['se']:.4f}.", "",
+              "| Predicted | n | Mean prediction | Observed |", "|---|---:|---:|---:|"]
+        L += [f"| {b['lo']:.1f}–{b['hi']:.1f} | {b['n']:,} | {_f(b['mean_p'], 3)} | {_f(b['observed'], 3)} |"
+              for b in r["forward_serving_calibration"]]
+    if r.get("data_variants"):
+        L += ["", "## Data decision: Challenger and qualifying results", "",
+              "API-Tennis adds Challenger and qualifying matches from 2019. They update ratings but are never scored. "
+              "Whether to use them was decided on 2021–22 tour matches (where that data exists); 2023 on and the "
+              f"forward window were not used for the choice. Chosen: **{r['data_choice']}**.", "",
+              "| Data | 2021–22 (decision) | 2023 – Jan 2026 | Forward |", "|---|---:|---:|---:|"]
+        for k, d in r["data_variants"].items():
+            L.append(f"| {k} | " + " | ".join(_f(d[w].get("log_loss")) for w in ("decision_2021_22", "test_2023_on", "forward")) + " |")
+        L += ["", "Log loss of the served blend; lower is better."]
+    if r.get("scoreline_check"):
+        L += ["", "## Scorelines: straight sets and tiebreaks", "",
+              "The Markov chain also predicts how a match is won. Checked against actual scores (completed matches):", "",
+              "| Window | n | Straight sets, predicted | observed | Tiebreaks per match, predicted | observed |",
+              "|---|---:|---:|---:|---:|---:|"]
+        for w, sc in r["scoreline_check"].items():
+            ss, tb = sc["straight_sets"], sc["tiebreaks_per_match"]
+            L.append(f"| {w} | {sc['n']:,} | {ss['mean_pred']:.3f} | {ss['observed']:.3f} | {tb['pred']:.3f} | {tb['observed']:.3f} |")
+        L += ["", f"Match-level form on the day (sd {r['sr_config'].get('form_sd', 0)} on the logit scale) is what brings "
+              "these into line: with independent points the chain predicts too few straight sets and too many tiebreaks."]
+    st = r.get("stack_experiment")
+    if st:
+        L += ["", "## Context features on top of the served model", "",
+              "Greedy selection on validation of a logistic layer over the served probability with age gap, left-hander "
+              "matchup, shrunk head-to-head, rest days, 14-day match load and home country. Selected: "
+              + (", ".join(f"`{f}`" for f in st["features"]) or "none") + ".", "",
+              "| Window | n | Served log loss | With features | Gain ± se |", "|---|---:|---:|---:|---:|"]
+        for w in ("test", "test_2023_on", "forward"):
+            if st.get(w):
+                g = st[w]["gain"]["log_loss"]
+                L.append(f"| {w} | {st[w]['base']['n']:,} | {_f(st[w]['base']['log_loss'])} | {_f(st[w]['stacked']['log_loss'])} | {g['gain']:.4f} ± {g['se']:.4f} |")
     L += [
         "",
         "Lower is better for Brier, log loss and ECE (expected calibration error, 10 bins). "
-        f"Market baseline: {r['market_baseline']}.",
+        "Market comparison: see `docs/markets.md`.",
         "",
         f"Selected Elo, completed matches only (retirements removed): "
         f"Brier {_f(r['test_selected_completed_only']['brier'])}, log loss {_f(r['test_selected_completed_only']['log_loss'])}, "
