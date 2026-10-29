@@ -5,19 +5,21 @@ A research app for pre-match tennis win probabilities, built from
 probability with its data cut-off, its confidence and its caveats. The LLM scouting report comes
 later in the MVP order, on top of verified numbers.
 
-**Status: checkpoint 2** (spec "MVP order" step 2: serve/return stats and the Markov model), on top
-of checkpoint 1 (historical data, surface Elo, data audit). See
+**Status: checkpoint 3** (fresh 2026 results and Challenger data via API-Tennis, a forward holdout,
+context features and an ML layer, a market comparison and a live order-book archive), on top of
+checkpoints 1 and 2. See [`docs/checkpoint-3.md`](docs/checkpoint-3.md),
 [`docs/checkpoint-2.md`](docs/checkpoint-2.md) and [`docs/checkpoint-1.md`](docs/checkpoint-1.md).
 
 | | |
 |---|---|
 | Backtest report | [`docs/backtest.md`](docs/backtest.md) (generated) |
 | Data audit | [`docs/data-audit.md`](docs/data-audit.md) (generated) |
+| Model vs markets | [`docs/markets.md`](docs/markets.md) (generated) |
 
 ## Quick start
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,ml]"   # ml = optional LightGBM layer; without it the logistic stack is served
 ```
 
 ```bash
@@ -26,6 +28,10 @@ tennisscout fetch          # clone TML-Database + Match Charting Project into da
 
 ```bash
 tennisscout fetch-markets  # store Kalshi + Polymarket tennis market listings (the audit links them to matches)
+```
+
+```bash
+API_TENNIS_KEY=... tennisscout fetch-api-tennis   # ATP results after Jan 2026 + Challenger since 2019
 ```
 
 ```bash
@@ -41,7 +47,11 @@ tennisscout serve          # FastAPI on :8000 — /predict, /players/search, /ba
 ```
 
 ```bash
-pytest                     # 57 tests on synthetic fixtures; no real data or network needed
+tennisscout archive-markets --compact --out archive/markets   # one compact ATP order-book snapshot
+```
+
+```bash
+pytest                     # tests on synthetic fixtures; no real data or network needed
 ```
 
 Ambiguous names are refused rather than guessed. `tennisscout predict Zverev Sinner` lists the
@@ -57,7 +67,11 @@ src/tennisscout/
   ingest_charting.py  Match Charting Project -> strict name resolution and match-level linking
   elo.py              overall + surface Elo, blend, best-of-5 conversion, ranking-range prior
   serve_return.py     opponent-adjusted serve/return ratings (logit scale, one-step Bayesian updates)
-  markov.py           point -> game -> tiebreak -> set -> match, with deciding-set rules by event and year
+  markov.py           point -> game -> tiebreak -> set -> match, deciding-set rules, set-score distribution
+  api_tennis.py       API-Tennis fetcher (raw monthly files); ingest_api_tennis.py maps it onto our IDs
+  features.py         pre-match context features (age, rest, load, head-to-head, ...) in replay order
+  ml_layer.py         optional LightGBM correction on top of the stacked model (chosen inside validation)
+  market_eval.py      market-only vs model vs combined at fixed checkpoints; fee-aware trading check
   backtest.py         chronological replay, validation-only model selection, baselines, Elo/Markov blend
   metrics.py          Brier, log loss, accuracy, calibration, ECE
   audit.py            first-milestone data audit (live probes of weather/market hosts)
@@ -81,7 +95,8 @@ data/                      (git-ignored) raw mirrors, SQLite DB, per-match audit
 | [Match Charting Project](https://github.com/JeffSackmann/tennis_MatchChartingProject) | Second source: exact dates, start times, point-by-point for a sample of matches | CC BY-NC-SA 4.0 (attribution, non-commercial) |
 | [JeffSackmann/tennis_atp](https://github.com/JeffSackmann/tennis_atp) | The spec's original backbone | Returned 404 on 2026-10-29, which is why the pipeline has a second path |
 | [Open-Meteo](https://open-meteo.com/) | Hourly reanalysis weather; archived forecasts for leak-free pre-match conditions | Free API for non-commercial use, data CC BY 4.0; daily request cap (shared egress IPs can hit it) |
-| Kalshi / Polymarket public APIs | Match-market listings, 1-minute price history, live order books | Exchange API terms apply; archived raw responses stay in `data/` |
+| Kalshi / Polymarket public APIs | Match-market listings, 1-minute price history, live order books | Exchange API terms apply; raw responses stay in `data/`, compact ATP snapshots go to `archive/` |
+| [API-Tennis](https://api-tennis.com/) | ATP results after the TML cutoff, Challenger since 2019, start times, serve stats | Paid API (key in `API_TENNIS_KEY`, never committed); raw responses stay in `data/` |
 
 Raw data stays in `data/` (git-ignored) because of these terms. What is committed is our own
 material: code, the ID registries (internal ID ↔ external ID only), curated metadata, and

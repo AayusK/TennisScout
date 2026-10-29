@@ -14,9 +14,9 @@ import sqlite3
 from dataclasses import asdict, dataclass, field
 from datetime import date
 
-from . import config, db, markov
+from . import config, db, markov, ml_layer
 from .backtest import safe_logit
-from .features import NAMES, FeatureState, player_info
+from .features import NAMES, FeatureState, edition_country, player_info
 from .elo import OVERALL, EloConfig, EloModel, confidence
 from .normalize import norm_name
 from .serve_return import ServeReturnModel, SRConfig
@@ -132,21 +132,22 @@ def load_sr(conn: sqlite3.Connection) -> ServeReturnModel | None:
     return m
 
 
-def live_features(conn: sqlite3.Connection, a: str, b: str, today: date) -> dict[str, float]:
+def live_features(conn: sqlite3.Connection, a: str, b: str, today: date, surface: str | None = None) -> dict[str, float]:
     """The stacking features as of ``today``, computed the same way as in the replay (features.py)."""
-    st = FeatureState(player_info(conn), {})
+    st = FeatureState(player_info(conn), edition_country(conn))
     rows = conn.execute(
-        """SELECT m.event_date_lo, m.winner_id, m.loser_id FROM match m
+        """SELECT m.match_id, m.event_date_lo, m.winner_id, m.loser_id, COALESCE(m.surface, e.surface)
+           FROM match m JOIN tournament_edition e USING (edition_id)
            WHERE (m.winner_id IN (?, ?) OR m.loser_id IN (?, ?)) AND m.identity_status = 'ok'
              AND m.outcome NOT IN ('walkover', 'default', 'unknown') ORDER BY m.seq""", (a, b, a, b))
-    for d, w, l in rows:
-        st.update(_Row(d, w, l))
-    return dict(zip(NAMES, st.features(_Row(today.isoformat(), a, b, match_id=""), a, b)))
+    for mid, d, w, l, surf in rows:
+        st.update(_Row(mid, d, w, l, surf))
+    return dict(zip(NAMES, st.features(_Row("", today.isoformat(), a, b, surface), a, b)))
 
 
 class _Row:
-    def __init__(self, d, w, l, match_id=None):
-        self.date, self.winner_id, self.loser_id, self.match_id = d, w, l, match_id
+    def __init__(self, match_id, d, w, l, surface=None):
+        self.match_id, self.date, self.winner_id, self.loser_id, self.surface = match_id, d, w, l, surface
 
 
 def predict(
@@ -189,11 +190,20 @@ def predict(
         })
         stack = json.loads(db.get_meta(conn, "stack") or "null")
         if stack and stack["features"]:
-            feats = live_features(conn, a.player_id, b.player_id, date.today())
+            feats = live_features(conn, a.player_id, b.player_id, date.today(), surface)
             z = stack["coef"][0] * safe_logit(components["elo_sr_blend"])
             z += sum(c * feats[f] for c, f in zip(stack["coef"][1:], stack["features"]))
             components["stacked"] = 1 / (1 + math.exp(-z))
             components["context_features"] = {f: feats[f] for f in stack["features"]}
+            gbm_text = db.get_meta(conn, "gbm_model")
+            if gbm_text and ml_layer.available():
+                import lightgbm as lgb
+                import numpy as np
+
+                x = ml_layer.row(components["stacked"], components["elo_selected"], components["serve_return"],
+                                 components["elo_sr_blend"], [feats[f] for f in NAMES], best_of,
+                                 "G" if best_of == 5 else None, surface)
+                components["gbm"] = float(ml_layer.predict(lgb.Booster(model_str=gbm_text), np.array([x]))[0])
         # Set scores and tiebreaks use their own (validation-chosen) form-on-the-day width.
         sr.form_sd_override = json.loads(db.get_meta(conn, "scoreline_form_sd") or "null")
         rule = markov.final_set_rule("G" if best_of == 5 else None, None, date.today().year, best_of)

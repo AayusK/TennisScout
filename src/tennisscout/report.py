@@ -292,6 +292,34 @@ def audit_md(a: dict) -> str:
     return "\n".join(L)
 
 
+def markets_md(m: dict) -> str:
+    L = [HEADER, "# Model vs prediction markets", ""]
+    L += [
+        f"Served model: **{m['serving_model']}**. Each row is one of our tour main-draw matches with a linked exchange "
+        "market and a scheduled start (API-Tennis start time, else the exchange's). The market probability for "
+        "player 1 is read at a checkpoint and normalised across both players' contracts to remove the margin; the "
+        "model probability is the pre-match prediction for the same match. The combined model is a logistic fit on "
+        "the market and model logits, fitted on the earlier half of the rows and scored on the later half.",
+        "",
+        "| Checkpoint | n | Market Brier | Model Brier | Market log loss | Model log loss | Later half: market / model / combined log loss |",
+        "|---|---:|---:|---:|---:|---:|---|",
+    ]
+    for key, c in m["comparisons"].items():
+        lh = c["later_half"]
+        L.append(f"| {key} | {c['n']:,} | {_f(c['market']['brier'])} | {_f(c['model']['brier'])} | "
+                 f"{_f(c['market']['log_loss'])} | {_f(c['model']['log_loss'])} | "
+                 f"{_f(lh['market']['log_loss'])} / {_f(lh['model']['log_loss'])} / {_f(lh['combined']['log_loss'])} (n={lh['n']:,}) |")
+    L += ["", "## Trading check (Kalshi, one hour before the scheduled start)", "",
+          "One contract on a player whenever the model probability exceeds the Kalshi ask plus taker fee by the "
+          "threshold; settled at 1 or 0. Historical depth is not stored, so whether the size was available is not "
+          "verified, and this is a research check, not a betting result.", "",
+          "| Edge threshold | Bets | P&L (sum, $ per contract) | ROI per bet |", "|---|---:|---:|---:|"]
+    for k, t in m["trading"].items():
+        L.append(f"| {k} | {t['bets']:,} | {t['pnl_per_contract_sum']} | {_pct(t['roi']) if t['roi'] is not None else '–'} |")
+    L.append("")
+    return "\n".join(L)
+
+
 def write(conn: sqlite3.Connection) -> list[str]:
     config.DOCS_DIR.mkdir(parents=True, exist_ok=True)
     written = []
@@ -299,6 +327,11 @@ def write(conn: sqlite3.Connection) -> list[str]:
     if bt:
         p = config.DOCS_DIR / "backtest.md"
         p.write_text(backtest_md(json.loads(bt)))
+        written.append(str(p))
+    me = db.get_meta(conn, "market_eval")
+    if me:
+        p = config.DOCS_DIR / "markets.md"
+        p.write_text(markets_md(json.loads(me)))
         written.append(str(p))
     au = db.get_meta(conn, "audit_result")
     if au:

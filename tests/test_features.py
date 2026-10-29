@@ -11,16 +11,17 @@ def row(mid, d, w, l):
 
 def test_features_use_only_the_past():
     info = {"a": (date(2000, 1, 1), "L", "USA"), "b": (date(1995, 1, 1), "R", "FRA")}
-    st = FeatureState(info, {"m3": "USA"})
+    st = FeatureState(info, {"m3": ("USA", -74.0)})
     first = st.features(row("m1", "2024-01-01", "a", "b"), "a", "b")
     assert first[2] == 0.0  # no head-to-head yet
     st.update(row("m1", "2024-01-01", "a", "b"))
     st.update(row("m2", "2024-01-08", "a", "b"))
     f = st.features(row("m3", "2024-01-10", "a", "b"), "a", "b")
-    age, lefty, h2h, rest, load, home = f
+    age, lefty, h2h, rest, load, home, exp, switch, travel = f
     assert round(age) == -5 and lefty == 1.0 and home == 1.0
     assert h2h == 2 / 6
-    assert load == 0.0 and rest == 0.0  # both played the same matches
+    assert load == 0.0 and rest == 0.0 and exp == 0.0  # both played the same matches
+    assert switch == 0.0 and travel == 0.0
     # Symmetry: swapping the players flips every feature.
     g = st.features(row("m3", "2024-01-10", "a", "b"), "b", "a")
     assert all(abs(x + y) < 1e-12 for x, y in zip(f, g))

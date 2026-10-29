@@ -411,11 +411,25 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
 
     fwd_serving = window(candidates[serving], forward)
     used = all_matches if data_choice != "tour_only" else matches
-    stack, preds_stacked = stack_experiment(conn, used, candidates[serving],
-                                            {"test": test, "test_2023_on": after_decision, "forward": forward}, log)
+    out_windows = {"test": test, "test_2023_on": after_decision, "forward": forward}
+    stack, preds_stacked, feats = stack_experiment(conn, used, candidates[serving], out_windows, log)
     if stack["features"]:  # the layer only exists if it improved validation
         candidates["stacked"], serving = preds_stacked, "stacked"
         log(f"serving model: stacked over {stack['features']}")
+    from . import ml_layer  # optional dependency; imported here to keep backtest importable without it
+
+    ml_result, booster = {"available": ml_layer.available()}, None
+    if ml_result["available"] and "stacked" in candidates:
+        info = {m.match_id: m for m in used}
+        by_id = {name: {p.match_id: p.p1 for p in candidates[name]} for name in ("elo_selected", "serve_return", "elo_sr_blend")}
+        rows = {p.match_id: ml_layer.row(p.p1, by_id["elo_selected"][p.match_id], by_id["serve_return"][p.match_id],
+                                         by_id["elo_sr_blend"][p.match_id], feats[p.match_id], info[p.match_id].best_of,
+                                         info[p.match_id].level, info[p.match_id].surface) for p in preds_stacked}
+        res_ml, preds_gbm, booster = ml_layer.run(preds_stacked, rows, VALIDATION, out_windows, log)
+        ml_result.update(res_ml)
+        if preds_gbm:
+            candidates["gbm"], serving = preds_gbm, "gbm"
+            log("serving model: gbm layer on the stack")
     # Set-score and tiebreak odds are their own output, so their form-on-the-day width is chosen on
     # validation scoreline accuracy (straight-sets log loss), separately from the match-winner blend.
     sc_grid = {sd: scoreline_check(used, sr_cfg, VALIDATION, form_sd=sd) for sd in (0.0, 0.1, 0.15, 0.2, 0.25, 0.3)}
@@ -456,18 +470,21 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
         "test_serving_calibration": metrics.calibration([p.p1 for p in window(candidates[serving], test)], ys),
         "forward_serving_calibration": metrics.calibration([p.p1 for p in fwd_serving], [p.y for p in fwd_serving]) if fwd_serving else None,
         "stack_experiment": stack,
+        "ml_layer": ml_result,
         "scoreline_check": scorelines,
         "scoreline_form_sd": scoreline_sd,
         "scoreline_grid": {str(k): v["straight_sets"]["log_loss"] for k, v in sc_grid.items()},
     }
     save(conn, selected, preds_sel, model_sel, result)
     extra = {"serve_return": preds_sr, "elo_sr_blend": preds_blend}
-    if "stacked" in candidates:
-        extra["stacked"] = candidates["stacked"]
+    for name in ("stacked", "gbm"):
+        if name in candidates:
+            extra[name] = candidates[name]
     save_sr(conn, sr_cfg, model_sr, extra, coef, serving)
     with conn:
         db.set_meta(conn, "stack", json.dumps({"features": stack["features"], "coef": stack["coef"]}))
         db.set_meta(conn, "scoreline_form_sd", json.dumps(scoreline_sd))
+        db.set_meta(conn, "gbm_model", booster.model_to_string() if booster else "")
     return result
 
 
@@ -595,4 +612,4 @@ def stack_experiment(conn, matches: list[MatchRow], base: list[PredRecord], wind
         b, s_ = window(base, rng), window(stacked, rng)
         if b:
             res[name] = {"base": score(b), "stacked": score(s_), "gain": paired_gain(b, s_)}
-    return res, stacked
+    return res, stacked, feats

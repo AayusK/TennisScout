@@ -10,6 +10,9 @@ player 2" so a logistic layer without intercept stays symmetric.
 * rest: log(1 + days since previous match), capped at a year
 * load: matches in the previous 14 days (fatigue)
 * home: +1 if player 1's country hosts the event, -1 if player 2's, else 0
+* exp: log(1 + prior matches), all levels
+* switch: +1 if only player 1's previous match was on another surface, -1 if only player 2's
+* travel: hours of time-zone shift (longitude / 15) since the previous venue, when both venues are known
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ import sqlite3
 from collections import defaultdict, deque
 from datetime import date
 
-NAMES = ("age", "lefty", "h2h", "rest", "load", "home")
+NAMES = ("age", "lefty", "h2h", "rest", "load", "home", "exp", "switch", "travel")
 
 def player_info(conn: sqlite3.Connection) -> dict[str, tuple[date | None, str | None, str | None]]:
     out = {}
@@ -34,15 +37,15 @@ def player_info(conn: sqlite3.Connection) -> dict[str, tuple[date | None, str | 
     return out
 
 
-def edition_country(conn: sqlite3.Connection) -> dict[str, str | None]:
-    """Host country per match, from the venue metadata attached to its edition."""
+def edition_country(conn: sqlite3.Connection) -> dict[str, tuple[str | None, float | None]]:
+    """(host country, venue longitude) per match, from the venue metadata attached to its edition."""
     from . import venues
 
     vindex = venues.VenueIndex(venues.load())
     out = {}
     for mid, name, year in conn.execute("SELECT m.match_id, e.name, e.year FROM match m JOIN tournament_edition e USING (edition_id)"):
         v = vindex.lookup(name, year)
-        out[mid] = v.country if v else None
+        out[mid] = (v.country, v.longitude) if v else (None, None)
     return out
 
 
@@ -52,6 +55,9 @@ class FeatureState:
         self.last: dict[str, date] = {}
         self.recent: dict[str, deque] = defaultdict(deque)
         self.h2h: dict[tuple[str, str], int] = defaultdict(int)
+        self.n: dict[str, int] = defaultdict(int)
+        self.last_surface: dict[str, str] = {}
+        self.last_lon: dict[str, float] = {}
 
     def features(self, m, a: str, b: str) -> list[float]:
         d = date.fromisoformat(m.date)
@@ -69,13 +75,32 @@ class FeatureState:
             q = self.recent[p]
             return sum(1 for x in q if 0 <= (d - x).days <= 14)
 
-        host = self.hosts.get(m.match_id)
+        host, lon = self.hosts.get(m.match_id, (None, None))
         home = (bool(host) and ia[2] == host) - (bool(host) and ib[2] == host)
-        return [age, float(lefty), h2h, rest(a) - rest(b), float(load(a) - load(b)), float(home)]
+        exp = math.log1p(self.n[a]) - math.log1p(self.n[b])
+        surf = getattr(m, "surface", None)
+
+        def switched(p):
+            return bool(surf) and p in self.last_surface and self.last_surface[p] != surf
+
+        def travel(p):
+            if lon is None or p not in self.last_lon:
+                return 0.0
+            dl = abs(lon - self.last_lon[p]) % 360
+            return min(dl, 360 - dl) / 15
+
+        return [age, float(lefty), h2h, rest(a) - rest(b), float(load(a) - load(b)), float(home),
+                exp, float(switched(a)) - float(switched(b)), travel(a) - travel(b)]
 
     def update(self, m) -> None:
         d = date.fromisoformat(m.date)
+        _, lon = self.hosts.get(getattr(m, "match_id", None), (None, None))
         for p in (m.winner_id, m.loser_id):
+            self.n[p] += 1
+            if getattr(m, "surface", None):
+                self.last_surface[p] = m.surface
+            if lon is not None:
+                self.last_lon[p] = lon
             self.last[p] = d
             q = self.recent[p]
             q.append(d)
