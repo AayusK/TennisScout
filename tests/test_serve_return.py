@@ -38,7 +38,7 @@ def test_sparse_player_moves_less_than_a_settled_one_would():
 def test_no_lookahead():
     rng = random.Random(3)
     rows = [MatchRow(f"M{i:07d}", i, 2000 + i // 200, "2000-01-01", f"p{rng.randrange(20)}", f"q{rng.randrange(20)}",
-                     "Hard", "O", 3, None, None, "250", "completed", "R32", "X", 80, rng.randrange(40, 70), 80, rng.randrange(40, 70))
+                     "Hard", "O", 3, None, None, "250", "completed", "R32", "X", None, 80, rng.randrange(40, 70), 80, rng.randrange(40, 70))
             for i in range(1, 801)]
     a, _ = replay_sr(rows, SRConfig(), 2000)
     changed = rows[:400] + [replace(r, w_svpt=None, w_won=None, l_svpt=None, l_won=None) for r in rows[400:]]

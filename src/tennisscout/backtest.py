@@ -52,6 +52,7 @@ class MatchRow:
     outcome: str
     round: str | None
     tourney: str | None = None
+    score: str | None = None
     w_svpt: int | None = None  # serve points / serve points won; None when the stat line fails validation
     w_won: int | None = None
     l_svpt: int | None = None
@@ -81,7 +82,7 @@ def load_matches(conn: sqlite3.Connection) -> list[MatchRow]:
         SELECT m.match_id, m.seq, e.year, COALESCE(m.event_date_lo, e.start_date) AS d,
                m.winner_id, m.loser_id, COALESCE(m.surface, e.surface) AS surface,
                COALESCE(m.indoor, e.indoor) AS indoor, m.best_of, m.winner_rank, m.loser_rank,
-               COALESCE(m.level, e.level) AS level, m.outcome, m.round, e.name,
+               COALESCE(m.level, e.level) AS level, m.outcome, m.round, e.name, m.score,
                {_valid_stats("w")}, {_valid_stats("l")}
         FROM match m JOIN tournament_edition e USING (edition_id)
         WHERE m.identity_status = 'ok'
@@ -416,3 +417,35 @@ def save_sr(conn, cfg: SRConfig, model: ServeReturnModel, preds: dict[str, list[
 
 
 __all__ = ["run", "replay", "load_matches", "MatchRow", "PredRecord", "OVERALL"]
+
+
+def scoreline_check(matches: list[MatchRow], cfg: SRConfig, years=TEST) -> dict:
+    """How well the Markov chain predicts straight sets and tiebreaks, vs the actual TML scores."""
+    from . import markov
+
+    model = ServeReturnModel(cfg)
+    rows = []
+    for m in matches:
+        if years[0] <= m.year <= years[1] and m.outcome == "completed":
+            sets = [t for t in (m.score or "").split() if "-" in t]
+            pa, pb = model.point_probs(m.winner_id, m.loser_id, m.surface, m.indoor)
+            rule = markov.final_set_rule(m.level, m.tourney, m.year, m.best_of, cfg.next_gen_format)
+            s = markov.set_win(pa, pb, rule if rule == ("short",) else markov.STANDARD)
+            need = 3 if m.best_of == 5 else 2
+            p_straight = s**need + (1 - s) ** need
+            if need == 3:
+                e_sets = 3 * p_straight + 4 * 3 * (s**3 * (1 - s) + s * (1 - s) ** 3) + 5 * 6 * s * s * (1 - s) ** 2
+            else:
+                e_sets = 2 * p_straight + 3 * (1 - p_straight)
+            tb = 0 if rule == ("short",) else markov.reach_tiebreak(pa, pb)
+            if sets:
+                rows.append((p_straight, len(sets) == need, e_sets * tb,
+                             sum(t[:3] in ("7-6", "6-7") for t in sets)))
+        model.update(m.winner_id, m.loser_id, m.surface, m.indoor, m.w_svpt, m.w_won, m.l_svpt, m.l_won)
+    ps, ys = [r[0] for r in rows], [int(r[1]) for r in rows]
+    return {
+        "n": len(rows),
+        "straight_sets": {**metrics.summarize(ps, ys), "mean_pred": sum(ps) / len(ps), "observed": sum(ys) / len(ys),
+                          "calibration": metrics.calibration(ps, ys, bins=5)},
+        "tiebreaks_per_match": {"pred": sum(r[2] for r in rows) / len(rows), "observed": sum(r[3] for r in rows) / len(rows)},
+    }

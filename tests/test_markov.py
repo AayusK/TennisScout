@@ -1,8 +1,8 @@
 import pytest
 
-from tennisscout.markov import STANDARD, final_set_rule, hold, match_win, set_win, tiebreak
+from tennisscout.markov import STANDARD, final_set_rule, hold, match_win, reach_tiebreak, set_win, tiebreak
 
-RULES = [STANDARD, None, (12, 7), (6, 10), ("match_tb", 10)]
+RULES = [STANDARD, None, (12, 7), (6, 10), ("match_tb", 10), ("short",)]
 
 
 def test_hold_known_values():
@@ -40,3 +40,11 @@ def test_final_set_rules():
     assert final_set_rule("G", "US Open", 2015, 5) == STANDARD
     assert final_set_rule("D", "Davis Cup WG", 2014, 5) is None
     assert final_set_rule("250", "Brisbane", 2024, 3) == STANDARD
+
+
+def test_next_gen_and_tiebreak_reach():
+    assert final_set_rule("A", "Next Gen ATP Finals", 2023, 5) == ("short",)
+    assert final_set_rule("A", "Next Gen ATP Finals", 2023, 5, next_gen=False) == STANDARD
+    # Short sets are more random: the favourite gains less.
+    assert 0.5 < set_win(0.68, 0.6, ("short",)) < set_win(0.68, 0.6)
+    assert reach_tiebreak(0.8, 0.8) > reach_tiebreak(0.6, 0.6)

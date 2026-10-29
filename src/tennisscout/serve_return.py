@@ -27,6 +27,7 @@ class SRConfig:
     drift_var: float = 0.0005  # added to a rating's variance each match: form changes
     mu_alpha: float = 0.002  # EMA weight for the tour-wide serve logit per surface
     surface_var: float = 0.0  # prior variance of per-player surface offsets; 0 turns them off
+    next_gen_format: bool = True  # score Next Gen Finals with short no-ad sets
 
     def with_(self, **kw) -> "SRConfig":
         return replace(self, **kw)
@@ -72,7 +73,7 @@ class ServeReturnModel:
 
     def predict(self, a, b, surface, indoor, best_of, level, tourney, year) -> tuple[float, float, float]:
         pa, pb = self.point_probs(a, b, surface, indoor)
-        rule = markov.final_set_rule(level, tourney, year, best_of)
+        rule = markov.final_set_rule(level, tourney, year, best_of, self.cfg.next_gen_format)
         return markov.match_win(pa, pb, best_of or 3, rule), pa, pb
 
     def _observe(self, server: str, returner: str, k: str, mu: float, points: int, won: int) -> None:
