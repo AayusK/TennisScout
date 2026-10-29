@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import audit, backtest, db, ingest_charting, ingest_tml, markets, predict, report, sources
+from . import api_tennis, audit, backtest, db, ingest_api_tennis, ingest_charting, ingest_tml, markets, predict, report, sources
 
 
 def _conn():
@@ -27,6 +27,10 @@ def cmd_ingest(args) -> None:
     conn = _conn()
     rep = ingest_tml.ingest(conn, sources.load_snapshot("tml"))
     print(json.dumps(rep.__dict__, indent=2))
+    if (api_tennis.RAW / "tournaments.json.gz").exists():
+        ingest_api_tennis.ingest(conn)
+    else:
+        print("no API-Tennis data; run `tennisscout fetch-api-tennis` to add 2026 and Challenger results")
     try:
         mcp = sources.load_snapshot("mcp")
     except FileNotFoundError:
@@ -97,12 +101,24 @@ def cmd_search(args) -> None:
         print(f"{r.player_id}  {r.name:30s} {r.ioc or '':4s} born {r.birthdate or '?':9s} last {r.last_match or '-':10s} {r.matches} matches")
 
 
+def cmd_fetch_api_tennis(args) -> None:
+    from datetime import date
+
+    print("tournaments", api_tennis.fetch_tournaments())
+    api_tennis.fetch_fixtures("atp", date(2026, 1, 1), date.today())
+    api_tennis.fetch_fixtures("challenger", date(2019, 1, 1), date.today())
+    print("player lists fetched", api_tennis.fetch_players())
+
+
 def cmd_fetch_markets(args) -> None:
     print(json.dumps(markets.fetch_listings(), indent=2))
 
 
 def cmd_archive_markets(args) -> None:
-    print(json.dumps(markets.archive_once(), indent=2))
+    if args.compact:
+        print(json.dumps(markets.archive_compact(Path(args.out)), indent=2))
+    else:
+        print(json.dumps(markets.archive_once(), indent=2))
 
 
 def cmd_serve(args) -> None:
@@ -144,8 +160,12 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--limit", type=int, default=10)
     s.set_defaults(func=cmd_search)
 
+    sub.add_parser("fetch-api-tennis", help="store API-Tennis ATP 2026 + Challenger results (needs API_TENNIS_KEY)").set_defaults(func=cmd_fetch_api_tennis)
     sub.add_parser("fetch-markets", help="store historical Kalshi/Polymarket tennis listings (used by the audit)").set_defaults(func=cmd_fetch_markets)
-    sub.add_parser("archive-markets", help="store one raw snapshot of Kalshi/Polymarket tennis books").set_defaults(func=cmd_archive_markets)
+    am = sub.add_parser("archive-markets", help="store one snapshot of Kalshi/Polymarket tennis books")
+    am.add_argument("--compact", action="store_true", help="ATP singles, top-5 depth, one small gzip per run")
+    am.add_argument("--out", default="archive/markets", help="output directory for --compact")
+    am.set_defaults(func=cmd_archive_markets)
     sv = sub.add_parser("serve", help="run the FastAPI service")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8000)

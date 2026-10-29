@@ -1,0 +1,48 @@
+name: market-archive
+
+# Every 15 minutes: one compact snapshot of open ATP singles books on Kalshi and
+# Polymarket (best prices, top-5 depth with sizes, last trade, volume), committed
+# as a new small gzip file to the `market-archive` branch. Scheduled runs only
+# fire from the default branch, so this starts once merged.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: market-archive
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - name: Check out the archive branch (created on first run)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          url="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads "$url" market-archive >/dev/null; then
+            git clone --depth 1 --branch market-archive "$url" archive
+          else
+            mkdir archive && git -C archive init -b market-archive && git -C archive remote add origin "$url"
+          fi
+      - run: tennisscout archive-markets --compact --out archive/markets
+      - name: Commit the snapshot
+        run: |
+          cd archive
+          git config user.name "tennisscout-archiver"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add markets
+          git commit -q -m "snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
+          for i in 1 2 3; do git push -q origin market-archive && break; git pull -q --rebase origin market-archive; done

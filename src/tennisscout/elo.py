@@ -41,6 +41,7 @@ class EloConfig:
     surface_init: str = "flat"  # "flat" | "overall"
     bo5_adjust: bool = False
     pred_scale: float = 1.0  # >1 widens the logistic at prediction time only (calibration), updates unchanged
+    challenger_k_weight: float = 1.0  # K multiplier for Challenger results
     established_matches: int = 30  # players whose ratings feed the rank prior
     prior_alpha: float = 0.02  # EMA weight for the rank prior
     prior_min_obs: int = 50
@@ -207,6 +208,7 @@ class EloModel:
         rank_w: int | None = None,
         rank_l: int | None = None,
         date: str | None = None,
+        weight: float = 1.0,
     ) -> None:
         cfg = self.cfg
         bucket = self.bucket(surface, indoor)
@@ -220,8 +222,8 @@ class EloModel:
         for bk in buckets:
             rw, rl = self.rating[(winner, bk)], self.rating[(loser, bk)]
             e = expected(rw, rl)
-            self.rating[(winner, bk)] = rw + k_factor(self.n[(winner, bk)], cfg) * (1 - e)
-            self.rating[(loser, bk)] = rl - k_factor(self.n[(loser, bk)], cfg) * (1 - e)
+            self.rating[(winner, bk)] = rw + weight * k_factor(self.n[(winner, bk)], cfg) * (1 - e)
+            self.rating[(loser, bk)] = rl - weight * k_factor(self.n[(loser, bk)], cfg) * (1 - e)
             self.n[(winner, bk)] += 1
             self.n[(loser, bk)] += 1
         if date:

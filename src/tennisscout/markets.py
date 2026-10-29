@@ -100,6 +100,59 @@ def archive_once() -> dict:
     return {"records": n, "ok": ok, "path": str(out)}
 
 
+def _top(levels, n: int = 5) -> list:
+    return levels[:n] if isinstance(levels, list) else []
+
+
+def compact_snapshot(depth: int = 5) -> list[dict]:
+    """ATP singles only: best prices, top-of-book depth with sizes, last trade, volume. Small enough for git."""
+    t = config.utcnow()
+    out = []
+    for series in [s for s in os.environ.get("TENNISSCOUT_KALSHI_SERIES", "KXATPMATCH").split(",") if s]:
+        r = http.get(f"{KALSHI_BASE}/markets", {"series_ticker": series, "status": "open", "limit": 1000})
+        for m in (r.json().get("markets") or []) if r.ok else []:
+            book = http.get(f"{KALSHI_BASE}/markets/{m['ticker']}/orderbook")
+            ob = (book.json().get("orderbook_fp") or {}) if book.ok else {}
+            # Kalshi books list resting bids for YES and for NO; best levels are at the end.
+            out.append({"t": t, "x": "kalshi", "market": m["ticker"], "event": m.get("event_ticker"),
+                        "player": m.get("yes_sub_title"), "start": m.get("occurrence_datetime"),
+                        "bid": m.get("yes_bid_dollars"), "ask": m.get("yes_ask_dollars"), "last": m.get("last_price_dollars"),
+                        "volume": m.get("volume_fp"), "oi": m.get("open_interest_fp"),
+                        "yes_bids": (ob.get("yes_dollars") or [])[-depth:], "no_bids": (ob.get("no_dollars") or [])[-depth:],
+                        "book_status": book.status})
+    events = _paged(f"{POLY_GAMMA}/events/keyset", "events", {"tag_slug": "tennis", "closed": "false", "limit": 500},
+                    cursor_param="after_cursor", cursor_key="next_cursor")
+    for ev in events:
+        title = ev.get("title") or ""
+        if not (ev.get("slug") or "").startswith("atp-") or " vs" not in title or "/" in title:
+            continue  # head-to-head ATP singles only
+        for m in ev.get("markets", []):
+            if m.get("sportsMarketType") != "moneyline" or m.get("closed"):
+                continue
+            names = json.loads(m.get("outcomes") or "[]")
+            for name, tok in zip(names, json.loads(m.get("clobTokenIds") or "[]")):
+                book = http.get(f"{POLY_CLOB}/book", {"token_id": tok})
+                b = book.json() if book.ok else {}
+                bids = sorted(b.get("bids") or [], key=lambda x: -float(x["price"]))
+                asks = sorted(b.get("asks") or [], key=lambda x: float(x["price"]))
+                out.append({"t": t, "x": "polymarket", "market": tok, "event": ev.get("slug"), "title": ev.get("title"),
+                            "player": name, "start": m.get("gameStartTime"), "last": b.get("last_trade_price"),
+                            "bids": _top(bids, depth), "asks": _top(asks, depth), "book_status": book.status})
+    return out
+
+
+def archive_compact(out_dir: Path) -> dict:
+    """One gzip file per run: <out_dir>/YYYY/MM/DD/HHMM.jsonl.gz (never rewritten, so git stays small)."""
+    rows = compact_snapshot()
+    t = config.utcnow()
+    path = Path(out_dir) / t[:4] / t[5:7] / t[8:10] / f"{t[11:13]}{t[14:16]}.jsonl.gz"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(path, "wt", encoding="utf-8") as fh:
+        for r in rows:
+            fh.write(json.dumps(r, separators=(",", ":")) + "\n")
+    return {"records": len(rows), "path": str(path), "books_ok": sum(1 for r in rows if r["book_status"] == 200)}
+
+
 def probe() -> list[dict]:
     return [
         http.probe(f"{KALSHI_BASE}/series?limit=1"),
