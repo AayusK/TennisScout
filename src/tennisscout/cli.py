@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import api_tennis, audit, backtest, db, ingest_api_tennis, ingest_charting, ingest_tml, markets, predict, report, sources
+from . import api_tennis, audit, backtest, db, ingest_api_tennis, ingest_charting, ingest_tml, markets, predict, report, sources, venues
 
 
 def _conn():
@@ -50,6 +50,18 @@ def cmd_audit(args) -> None:
     conn = _conn()
     res = audit.run(conn)
     print(json.dumps(res["sample_summary"], indent=2))
+
+
+def cmd_verify_venues(args) -> None:
+    from datetime import datetime, timezone
+
+    rows = venues.verify()
+    with _conn() as conn:
+        db.set_meta(conn, "venue_check", json.dumps({"run_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "rows": rows}))
+    bad = [r for r in rows if r["status"] != "checked" or not (r["elevation_ok"] and r["region_ok"])]
+    print(f"{len(rows) - len(bad)} of {len(rows)} venue rows agree with the DEM and timezone")
+    for r in bad:
+        print(" ", r)
 
 
 def cmd_report(args) -> None:
@@ -141,6 +153,7 @@ def main(argv: list[str] | None = None) -> None:
     b.add_argument("-v", "--verbose", action="store_true")
     b.set_defaults(func=cmd_backtest)
     sub.add_parser("audit", help="run the data audit").set_defaults(func=cmd_audit)
+    sub.add_parser("verify-venues", help="check venue elevations and timezones against Open-Meteo (128 calls)").set_defaults(func=cmd_verify_venues)
     sub.add_parser("report", help="write docs/backtest.md and docs/data-audit.md").set_defaults(func=cmd_report)
     a = sub.add_parser("all", help="ingest, backtest, audit, report")
     a.add_argument("-v", "--verbose", action="store_true")

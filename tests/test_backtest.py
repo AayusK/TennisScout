@@ -58,3 +58,27 @@ def test_end_to_end_on_fixture(loaded):
     # 9 rows minus one walkover and one identity conflict.
     assert len(rows) == 7
     assert [r.seq for r in rows] == sorted(r.seq for r in rows)
+
+
+def test_walk_forward_fits_only_on_earlier_years():
+    # Signal flips sign in 2020: a refit on 2019 alone must follow it; 2020's own outcomes are never used for 2020.
+    rng = random.Random(3)
+    preds, feats = [], {}
+    for i in range(3000):
+        year = 2018 + i // 1000
+        x = rng.uniform(-2, 2)
+        sign = 1 if year < 2020 else -1
+        y = int(rng.random() < 1 / (1 + 2.718281828 ** (-sign * x)))
+        mid = f"m{i}"
+        preds.append(backtest.PredRecord(mid, i, year, "a", "b", rng.uniform(0.3, 0.7), y, "high", "A", "", 3, "completed", None, None,
+                                         date=f"{year}-06-01"))
+        feats[mid] = [x] + [0.0] * 8
+    out, coef = backtest.walk_forward(preds, feats, ["age"], 2019, years_back=1)
+    assert len(out) == 2000
+    by_year = {p.year: [] for p in out}
+    for p in out:
+        by_year[p.year].append(p)
+    assert coef[1] > 0  # the current (last) year's serving weights come from 2019 only, not from 2020 itself
+    # 2020 predictions use 2019's fit (positive slope), so they lean the wrong way there.
+    hits = sum((p.p1 > 0.5) == bool(p.y) for p in by_year[2020])
+    assert hits < 500

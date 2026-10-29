@@ -190,7 +190,23 @@ def backtest_md(r: dict) -> str:
     return "\n".join(L)
 
 
-def audit_md(a: dict) -> str:
+def venue_md(v: dict) -> list[str]:
+    rows = v["rows"]
+    ok = [r for r in rows if r["status"] == "checked" and r["elevation_ok"] and r["region_ok"]]
+    L = ["## Venue table check", "",
+         f"Run at {v['run_at']}. Each row of `metadata/venues.csv` was compared with Open-Meteo at its coordinates: "
+         "terrain elevation from the 90 m DEM (agree within 60 m or 25%) and the IANA timezone's region. "
+         f"{len(ok)} of {len(rows)} rows agree. This confirms the coordinates sit at the stated altitude and on the "
+         "right continent, not that they point at the exact venue.", ""]
+    bad = [r for r in rows if r not in ok]
+    if bad:
+        L += ["| Venue | From | Seed m | DEM m | Timezone | Status |", "|---|---:|---:|---:|---|---|"]
+        L += [f"| {r['venue']} | {r['year_from']} | {r.get('seed_m', '–')} | {r.get('dem_m', '–')} | {r.get('timezone', '–')} | {r['status']} |" for r in bad]
+        L.append("")
+    return L
+
+
+def audit_md(a: dict, venue_check: dict | None = None) -> str:
     pi, pt, cs, ss = a["population_identity"], a["population_timestamps"], a["cross_source"], a["sample_summary"]
     L = [HEADER, "# Data audit (first milestone)", ""]
     L += [f"Run at {a['run_at']}. Source snapshots:", ""]
@@ -211,7 +227,7 @@ def audit_md(a: dict) -> str:
         ("Pre-match rankings present", _pct(ss["has_pre_match_ranks"])),
         ("Surface present", _pct(ss["has_surface"])),
         ("Indoor/outdoor flag present", f"{_pct(ss['has_indoor_flag'])} (tournament-level only; match-level roof status: {_pct(ss['indoor_flag_match_level'])})"),
-        ("Altitude present", f"{_pct(ss['has_altitude_seed'])} (from the unverified manual venue seed)"),
+        ("Altitude present", f"{_pct(ss['has_altitude_seed'])} (manual venue seed, checked against a DEM below)"),
         ("Outdoor matches with venue coordinates", f"{ss['outdoor_with_coordinates']} of {ss['outdoor_matches']}"),
         ("Outdoor matches with reconstructed weather joined", f"{ss['outdoor_weather_joined']} of {ss['outdoor_matches']} (Open-Meteo reanalysis, city-level, edition window)"),
         ("Event-time precision", ", ".join(f"{k}: {v}" for k, v in ss["event_time_precision"].items()) + f" (median window {ss['median_event_window_days']} days)"),
@@ -289,6 +305,8 @@ def audit_md(a: dict) -> str:
     for f in cs["alias_suggestions_from_unique_joins"][:20]:
         L.append(f"- MCP “{f['name']}” → {f['tml_name']} (`{f['player_id']}`), {f['charts']} chart(s)")
     L.append("")
+    if venue_check:
+        L += venue_md(venue_check)
     return "\n".join(L)
 
 
@@ -336,6 +354,6 @@ def write(conn: sqlite3.Connection) -> list[str]:
     au = db.get_meta(conn, "audit_result")
     if au:
         p = config.DOCS_DIR / "data-audit.md"
-        p.write_text(audit_md(json.loads(au)))
+        p.write_text(audit_md(json.loads(au), json.loads(db.get_meta(conn, "venue_check") or "null")))
         written.append(str(p))
     return written

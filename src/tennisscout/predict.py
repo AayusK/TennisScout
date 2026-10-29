@@ -194,6 +194,7 @@ def predict(
             z = stack["coef"][0] * safe_logit(components["elo_sr_blend"])
             z += sum(c * feats[f] for c, f in zip(stack["coef"][1:], stack["features"]))
             components["stacked"] = 1 / (1 + math.exp(-z))
+            components["walk_forward"] = components["stacked"]  # meta "stack" holds the latest yearly refit then
             components["context_features"] = {f: feats[f] for f in stack["features"]}
             gbm_text = db.get_meta(conn, "gbm_model")
             if gbm_text and ml_layer.available():

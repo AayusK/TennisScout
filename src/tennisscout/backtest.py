@@ -416,6 +416,37 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
     if stack["features"]:  # the layer only exists if it improved validation
         candidates["stacked"], serving = preds_stacked, "stacked"
         log(f"serving model: stacked over {stack['features']}")
+    # Walk-forward refit of the stack (tracks drift in how predictable the tour is). Decided inside
+    # validation: fixed weights from 2014-15 vs yearly refits, both scored on 2016-18, which neither saw.
+    walk = {"adopted": False}
+    if "stacked" in candidates:
+        blend_preds, chosen = candidates["elo_sr_blend"], stack["features"]
+        early = window(blend_preds, ("2014-01-01", "2015-12-31"))
+        fixed_coef = fit_logistic([_stack_x(p, feats, chosen) for p in early], [p.y for p in early])
+        fixed = _stack_apply(window(blend_preds, ("2016-01-01", VALIDATION[1])), feats, chosen, fixed_coef)
+        val_fixed = score(fixed)
+        trials = {}
+        for yb in (1, 2, 3):
+            r_, c_ = walk_forward(blend_preds, feats, chosen, 2016, yb)
+            trials[yb] = (score(window(r_, ("2016-01-01", VALIDATION[1]))), r_, c_)
+        years_back = min(trials, key=lambda k: trials[k][0]["log_loss"])
+        val_rolled, rolled, current_coef = trials[years_back]
+        walk["years_back"] = years_back
+        walk["validation_2016_18"] = {"fixed": val_fixed, "walk_forward": val_rolled,
+                                      "by_years_back": {k: v[0]["log_loss"] for k, v in trials.items()}}
+        walk["adopted"] = val_rolled["log_loss"] < val_fixed["log_loss"] - 1e-4
+        log(f"  walk-forward stack on 2016-18: {val_rolled['log_loss']:.5f} vs fixed {val_fixed['log_loss']:.5f}")
+        for name, rng in out_windows.items():
+            walk[name] = {"stacked_fixed": score(window(candidates["stacked"], rng)), "walk_forward": score(window(rolled, rng)),
+                          "gain": paired_gain(window(candidates["stacked"], rng), window(rolled, rng))}
+        if walk["adopted"]:
+            # Same match list as the other models: years before the first refit keep the fixed stack.
+            rolled_by_id = {p.match_id: p for p in rolled}
+            candidates["walk_forward"] = [rolled_by_id.get(p.match_id, p) for p in candidates["stacked"]]
+            serving = "walk_forward"
+            stack = {**stack, "coef_fixed": stack["coef"], "coef": current_coef}  # serving uses this year's refit
+            log(f"serving model: walk-forward stack ({years_back}-year window)")
+
     from . import ml_layer  # optional dependency; imported here to keep backtest importable without it
 
     ml_result, booster = {"available": ml_layer.available()}, None
@@ -424,8 +455,8 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
         by_id = {name: {p.match_id: p.p1 for p in candidates[name]} for name in ("elo_selected", "serve_return", "elo_sr_blend")}
         rows = {p.match_id: ml_layer.row(p.p1, by_id["elo_selected"][p.match_id], by_id["serve_return"][p.match_id],
                                          by_id["elo_sr_blend"][p.match_id], feats[p.match_id], info[p.match_id].best_of,
-                                         info[p.match_id].level, info[p.match_id].surface) for p in preds_stacked}
-        res_ml, preds_gbm, booster = ml_layer.run(preds_stacked, rows, VALIDATION, out_windows, log)
+                                         info[p.match_id].level, info[p.match_id].surface) for p in candidates[serving]}
+        res_ml, preds_gbm, booster = ml_layer.run(candidates[serving], rows, VALIDATION, out_windows, log)
         ml_result.update(res_ml)
         if preds_gbm:
             candidates["gbm"], serving = preds_gbm, "gbm"
@@ -471,13 +502,14 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
         "forward_serving_calibration": metrics.calibration([p.p1 for p in fwd_serving], [p.y for p in fwd_serving]) if fwd_serving else None,
         "stack_experiment": stack,
         "ml_layer": ml_result,
+        "walk_forward": walk,
         "scoreline_check": scorelines,
         "scoreline_form_sd": scoreline_sd,
         "scoreline_grid": {str(k): v["straight_sets"]["log_loss"] for k, v in sc_grid.items()},
     }
     save(conn, selected, preds_sel, model_sel, result)
     extra = {"serve_return": preds_sr, "elo_sr_blend": preds_blend}
-    for name in ("stacked", "gbm"):
+    for name in ("stacked", "walk_forward", "gbm"):
         if name in candidates:
             extra[name] = candidates[name]
     save_sr(conn, sr_cfg, model_sr, extra, coef, serving)
@@ -613,3 +645,34 @@ def stack_experiment(conn, matches: list[MatchRow], base: list[PredRecord], wind
         if b:
             res[name] = {"base": score(b), "stacked": score(s_), "gain": paired_gain(b, s_)}
     return res, stacked, feats
+
+
+def _stack_x(p: PredRecord, feats: dict, chosen: list[str]) -> list[float]:
+    from .features import NAMES
+
+    return [safe_logit(p.p1)] + [feats[p.match_id][NAMES.index(f)] for f in chosen]
+
+
+def _stack_apply(preds: list[PredRecord], feats: dict, chosen: list[str], coef: list[float]) -> list[PredRecord]:
+    return [replace(p, p1=1 / (1 + math.exp(-sum(c * v for c, v in zip(coef, _stack_x(p, feats, chosen)))))) for p in preds]
+
+
+def walk_forward(preds: list[PredRecord], feats: dict, chosen: list[str], first_year: int, years_back: int = 2):
+    """Refit the stack's logistic weights each calendar year on the previous ``years_back`` years only.
+
+    Returns the predictions and the weights for the year after the last one (what serving uses next).
+    """
+    by_year: dict[int, list[PredRecord]] = defaultdict(list)
+    for p in preds:
+        by_year[int(p.date[:4])].append(p)
+
+    def fit_for(year):
+        train = [p for y in range(year - years_back, year) for p in by_year.get(y, ())]
+        return fit_logistic([_stack_x(p, feats, chosen) for p in train], [p.y for p in train])
+
+    out = []
+    years = sorted(y for y in by_year if y >= first_year)
+    for year in years:
+        out += _stack_apply(by_year[year], feats, chosen, fit_for(year))
+    # Serving in the current (last, partial) year uses the same weights its predictions used.
+    return out, fit_for(years[-1]) if years else None
