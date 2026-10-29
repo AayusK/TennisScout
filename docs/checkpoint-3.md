@@ -30,8 +30,9 @@ Generated detail: [backtest](backtest.md), [markets](markets.md), [audit](data-a
   full set-score distribution. Point probabilities are now anchored to the served win
   probability, so set scores, straight sets and tiebreak odds agree with the headline number.
 - **Live schedule.** `tennisscout upcoming` and `GET /upcoming` list scheduled ATP matches from
-  API-Tennis with the served prediction. Players who were never ingested are listed without a
-  number. Today's Basel and Vienna fixtures (12 matches) all mapped.
+  API-Tennis with the served prediction and, when Kalshi lists the match, its current price (mid,
+  margin removed). Players who were never ingested are listed without a number. Today's Basel
+  and Vienna fixtures (12 matches) all mapped to our players and to Kalshi markets.
 - **Markets.** Kalshi and Polymarket prices at t−24h, t−1h and the last price before the
   scheduled start, compared with the model on the same matches (`tennisscout evaluate-markets`).
   Order books are archived every 15 minutes (`.github/workflows/market-archive.yml`).

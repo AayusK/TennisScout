@@ -74,8 +74,10 @@ def test_upcoming_rows(client, loaded):
         {**base, "event_key": 12, "first_player_key": 1, "second_player_key": 2, "event_first_player": "A. Alpha",
          "event_second_player": "B. Beta", "event_status": "Finished", "event_winner": "First Player"},
     ]
-    out = upcoming.rows(conn, fixtures, {9: {"tournament_sourface": "Hard (Indoor)"}})
+    quotes = {frozenset((a, b)): {a: {"bid": 0.60, "ask": 0.62}, b: {"bid": 0.38, "ask": 0.40}}}
+    out = upcoming.rows(conn, fixtures, {9: {"tournament_sourface": "Hard (Indoor)"}}, quotes)
     assert [r["event_key"] for r in out] == [10, 11]  # the finished match is dropped
     assert out[0]["surface"] == "Hard" and out[0]["indoor"] and out[0]["round"] == "QF"
     assert 0 < out[0]["p_a"] < 1 and out[0]["player_a_id"] == a
     assert out[1]["error"] == "player not in the registry yet" and "p_a" not in out[1]
+    assert abs(out[0]["kalshi_p_a"] - 0.61) < 1e-9 and "kalshi_p_a" not in out[1]

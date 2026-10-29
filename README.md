@@ -43,7 +43,7 @@ tennisscout predict "Jannik Sinner" "Carlos Alcaraz" --surface Clay --best-of 5
 ```
 
 ```bash
-API_TENNIS_KEY=... tennisscout upcoming --days 2   # scheduled ATP matches with the served prediction
+API_TENNIS_KEY=... tennisscout upcoming --days 2   # scheduled ATP matches: served prediction + live Kalshi price
 ```
 
 ```bash

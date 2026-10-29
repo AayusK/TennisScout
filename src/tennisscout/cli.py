@@ -69,6 +69,8 @@ def cmd_upcoming(args) -> None:
 
     for r in upcoming.upcoming(_conn(), args.days):
         p = f"{r['p_a']:.1%}  [{r['model']}, {r['confidence']}]" if "p_a" in r else f"–  ({r['error']})"
+        if "kalshi_p_a" in r:
+            p += f"  Kalshi {r['kalshi_p_a']:.1%} (bid {r['kalshi_bid_a']:.2f} / ask {r['kalshi_ask_a']:.2f})"
         print(f"{r['start'][:16]}  {r['tournament']} {r['round']}: {r['player_a']} vs {r['player_b']}  P({r['player_a']}) = {p}")
 
 
