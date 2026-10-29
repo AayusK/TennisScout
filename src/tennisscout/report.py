@@ -85,15 +85,18 @@ def backtest_md(r: dict) -> str:
         L += ["", "Log loss of the served blend; lower is better."]
     if r.get("scoreline_check"):
         L += ["", "## Scorelines: straight sets and tiebreaks", "",
-              "The Markov chain also predicts how a match is won. Checked against actual scores (completed matches):", "",
-              "| Window | n | Straight sets, predicted | observed | Tiebreaks per match, predicted | observed |",
-              "|---|---:|---:|---:|---:|---:|"]
+              "The Markov chain also predicts how a match is won. Its point probabilities are anchored so that its "
+              "match-win chance equals the served model's (the serve/return ratings set how serve-dominated the "
+              "matchup is). Checked against actual scores (completed matches):", "",
+              "| Window | n | Straight sets, predicted | observed | log loss | Tiebreaks per match, predicted | observed |",
+              "|---|---:|---:|---:|---:|---:|---:|"]
         for w, sc in r["scoreline_check"].items():
             ss, tb = sc["straight_sets"], sc["tiebreaks_per_match"]
-            L.append(f"| {w} | {sc['n']:,} | {ss['mean_pred']:.3f} | {ss['observed']:.3f} | {tb['pred']:.3f} | {tb['observed']:.3f} |")
+            L.append(f"| {w} | {sc['n']:,} | {ss['mean_pred']:.3f} | {ss['observed']:.3f} | {_f(ss['log_loss'])} | {tb['pred']:.3f} | {tb['observed']:.3f} |")
         L += ["", f"Match-level form on the day (sd {r.get('scoreline_form_sd', r['sr_config'].get('form_sd', 0))} on the logit "
-              "scale, chosen on validation straight-sets log loss) is what brings "
-              "these into line: with independent points the chain predicts too few straight sets and too many tiebreaks."]
+              "scale, chosen on validation straight-sets log loss plus the tiebreak count's Poisson likelihood) is what "
+              "brings these into line: with independent points the chain predicts too few straight sets and too many "
+              "tiebreaks. `serve_return_only_test` is the same chain without the anchor."]
     st = r.get("stack_experiment")
     if st:
         L += ["", "## Context features on top of the served model", "",

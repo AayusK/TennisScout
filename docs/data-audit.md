@@ -132,8 +132,4 @@ Name variants resolved only because the match-level join was unique (candidates 
 
 ## Venue table check
 
-Run at 2026-10-29T06:36:53Z. Each row of `metadata/venues.csv` was compared with Open-Meteo at its coordinates: terrain elevation from the 90 m DEM (agree within 60 m or 25%) and the IANA timezone's region. 127 of 128 rows agree. This confirms the coordinates sit at the stated altitude and on the right continent, not that they point at the exact venue.
-
-| Venue | From | Seed m | DEM m | Timezone | Status |
-|---|---:|---:|---:|---|---|
-| Shanghai | 2009 | – | – | – | URLError: _ssl.c:1015: The handshake operation timed out |
+Run at 2026-10-29T07:40:30Z. Each row of `metadata/venues.csv` was compared with Open-Meteo at its coordinates: terrain elevation from the 90 m DEM (agree within 60 m or 25%) and the IANA timezone's region. 128 of 128 rows agree. This confirms the coordinates sit at the stated altitude and on the right continent, not that they point at the exact venue.

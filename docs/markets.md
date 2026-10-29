@@ -2,22 +2,23 @@
 
 # Model vs prediction markets
 
-Served model: **stacked**. Each row is one of our tour main-draw matches with a linked exchange market and a scheduled start (API-Tennis start time, else the exchange's). The market probability for player 1 is read at a checkpoint and normalised across both players' contracts to remove the margin; the model probability is the pre-match prediction for the same match. The combined model is a logistic fit on the market and model logits, fitted on the earlier half of the rows and scored on the later half.
+Served model: **walk_forward**. Each row is one of our tour main-draw matches with a linked exchange market and a scheduled start (API-Tennis start time, else the exchange's). The market probability for player 1 is read at a checkpoint and normalised across both players' contracts to remove the margin; the model probability is the pre-match prediction for the same match. The combined model is a logistic fit on the market and model logits, fitted on the earlier half of the rows and scored on the later half.
 
-| Checkpoint | n | Market Brier | Model Brier | Market log loss | Model log loss | Later half: market / model / combined log loss |
-|---|---:|---:|---:|---:|---:|---|
-| kalshi_t-1h | 102 | 0.2251 | 0.2238 | 0.6432 | 0.6401 | 0.5695 / 0.5737 / 0.6177 (n=51) |
-| kalshi_last | 106 | 0.2238 | 0.2241 | 0.6366 | 0.6409 | 0.5790 / 0.5728 / 0.6401 (n=53) |
-| polymarket_t-24h | 93 | 0.2213 | 0.2103 | 0.6263 | 0.6028 | 0.6352 / 0.6142 / 0.6145 (n=47) |
-| polymarket_t-1h | 125 | 0.2185 | 0.2181 | 0.6282 | 0.6265 | 0.5573 / 0.5633 / 0.5960 (n=63) |
-| polymarket_last | 127 | 0.2156 | 0.2167 | 0.6218 | 0.6236 | 0.5596 / 0.5651 / 0.5936 (n=64) |
+| Checkpoint | n | Market Brier | Model Brier | Market log loss | Model log loss | Market gain ± se | Later half: market / model / combined log loss | Combined gain over market ± se |
+|---|---:|---:|---:|---:|---:|---:|---|---:|
+| kalshi_t-24h | 1,403 | 0.2038 | 0.2062 | 0.5928 | 0.5974 | – | 0.6070 / 0.6140 / 0.6102 (n=702) | – |
+| kalshi_t-1h | 2,190 | 0.2078 | 0.2098 | 0.6018 | 0.6055 | – | 0.6203 / 0.6204 / 0.6177 (n=1,095) | – |
+| kalshi_last | 2,202 | 0.2066 | 0.2098 | 0.5985 | 0.6053 | – | 0.6149 / 0.6191 / 0.6132 (n=1,101) | – |
+| polymarket_t-24h | 1,926 | 0.2053 | 0.2071 | 0.5952 | 0.5993 | – | 0.5971 / 0.6052 / 0.5983 (n=963) | – |
+| polymarket_t-1h | 2,760 | 0.2072 | 0.2110 | 0.6001 | 0.6082 | – | 0.6143 / 0.6230 / 0.6150 (n=1,380) | – |
+| polymarket_last | 2,764 | 0.2065 | 0.2108 | 0.5985 | 0.6079 | – | 0.6135 / 0.6226 / 0.6137 (n=1,382) | – |
 
 ## Trading check (Kalshi, one hour before the scheduled start)
 
 One contract on a player whenever the model probability exceeds the Kalshi ask plus taker fee by the threshold; settled at 1 or 0. Historical depth is not stored, so whether the size was available is not verified, and this is a research check, not a betting result.
 
-| Edge threshold | Bets | P&L (sum, $ per contract) | ROI per bet |
+| Edge threshold | Bets | P&L (sum, $ per contract) ± se | ROI per bet |
 |---|---:|---:|---:|
-| edge>=0.02 | 45 | 2.38 | 5.3% |
-| edge>=0.05 | 28 | 1.71 | 6.1% |
-| edge>=0.1 | 11 | -0.81 | -7.4% |
+| edge>=0.02 | 1,169 | 17.05 | 1.5% |
+| edge>=0.05 | 722 | 8.1 | 1.1% |
+| edge>=0.1 | 273 | 6.24 | 2.3% |

@@ -64,12 +64,13 @@ The Markov chain also predicts how a match is won. Checked against actual scores
 
 | Window | n | Straight sets, predicted | observed | Tiebreaks per match, predicted | observed |
 |---|---:|---:|---:|---:|---:|
-| validation | 14,180 | 0.628 | 0.605 | 0.485 | 0.488 |
-| test | 18,438 | 0.633 | 0.605 | 0.473 | 0.481 |
-| forward | 2,454 | 0.626 | 0.601 | 0.496 | 0.507 |
+| validation | 14,180 | 0.590 | 0.605 | 0.526 | 0.488 |
+| test | 18,438 | 0.588 | 0.605 | 0.523 | 0.481 |
+| forward | 2,454 | 0.590 | 0.601 | 0.536 | 0.507 |
+| serve_return_only_test | 18,438 | 0.604 | 0.605 | 0.505 | 0.481 |
 | independent_points_test | 18,438 | 0.553 | 0.605 | 0.560 | 0.481 |
 
-Match-level form on the day (sd 0.2 on the logit scale, chosen on validation straight-sets log loss) is what brings these into line: with independent points the chain predicts too few straight sets and too many tiebreaks.
+Match-level form on the day (sd 0.15 on the logit scale, chosen on validation straight-sets log loss) is what brings these into line: with independent points the chain predicts too few straight sets and too many tiebreaks.
 
 ## Context features on top of the served model
 

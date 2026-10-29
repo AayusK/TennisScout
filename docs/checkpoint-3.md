@@ -35,8 +35,9 @@ Generated detail: [backtest](backtest.md), [markets](markets.md), [audit](data-a
   scheduled start, compared with the model on the same matches (`tennisscout evaluate-markets`).
   Order books are archived every 15 minutes (`.github/workflows/market-archive.yml`).
 - **Venue table check** (`tennisscout verify-venues`). Every row was checked against the
-  Open-Meteo 90 m DEM and timezone. 127 of 128 agreed. Sardinia 2020 sat on an inland point and
-  was moved to the coastal resort. On the latest run, Shanghai timed out (it passed earlier).
+  Open-Meteo 90 m DEM and timezone. 127 of 128 agreed at first: Sardinia 2020 sat on an inland
+  point and was moved to the coastal resort. All 128 agree now. This confirms altitude and region,
+  not that each point is the exact venue.
 
 ## Results
 

@@ -462,11 +462,12 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
             candidates["gbm"], serving = preds_gbm, "gbm"
             log("serving model: gbm layer on the stack")
     # Set-score and tiebreak odds are their own output, so their form-on-the-day width is chosen on
-    # validation scoreline accuracy (straight-sets log loss), separately from the match-winner blend.
+    # validation scoreline accuracy (straight-sets log loss + tiebreak-count Poisson NLL), separately
+    # from the match-winner blend.
     # The chain is anchored to the served model's win probability (markov.implied_shift).
     served_p = {p.match_id: p.p1 if p.y else 1 - p.p1 for p in candidates[serving]}
     sc_grid = {sd: scoreline_check(used, sr_cfg, VALIDATION, form_sd=sd, served=served_p) for sd in (0.1, 0.15, 0.2, 0.25, 0.3)}
-    scoreline_sd = min(sc_grid, key=lambda sd: sc_grid[sd]["straight_sets"]["log_loss"])
+    scoreline_sd = min(sc_grid, key=lambda sd: sc_grid[sd]["straight_sets"]["log_loss"] + sc_grid[sd]["tiebreaks_per_match"]["poisson_nll"])
     log(f"scoreline form_sd (validation): {scoreline_sd}")
     scorelines = {name: scoreline_check(used, sr_cfg, rng, form_sd=scoreline_sd, served=served_p)
                   for name, rng in (("validation", VALIDATION), ("test", test), ("forward", forward))}
@@ -508,7 +509,8 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
         "walk_forward": walk,
         "scoreline_check": scorelines,
         "scoreline_form_sd": scoreline_sd,
-        "scoreline_grid": {str(k): v["straight_sets"]["log_loss"] for k, v in sc_grid.items()},
+        "scoreline_grid": {str(k): {"straight_sets_log_loss": v["straight_sets"]["log_loss"],
+                                    "tiebreak_poisson_nll": v["tiebreaks_per_match"]["poisson_nll"]} for k, v in sc_grid.items()},
     }
     save(conn, selected, preds_sel, model_sel, result)
     extra = {"serve_return": preds_sr, "elo_sr_blend": preds_blend}
@@ -607,7 +609,10 @@ def scoreline_check(matches: list[MatchRow], cfg: SRConfig, dates=TEST, form_sd:
         "n": len(rows),
         "straight_sets": {**metrics.summarize(ps, ys), "mean_pred": sum(ps) / len(ps), "observed": sum(ys) / len(ys),
                           "calibration": metrics.calibration(ps, ys, bins=5)},
-        "tiebreaks_per_match": {"pred": sum(r[2] for r in rows) / len(rows), "observed": sum(r[3] for r in rows) / len(rows)},
+        "tiebreaks_per_match": {"pred": sum(r[2] for r in rows) / len(rows), "observed": sum(r[3] for r in rows) / len(rows),
+                                # Poisson negative log-likelihood of each match's tiebreak count
+                                "poisson_nll": sum(max(r[2], 1e-6) - r[3] * math.log(max(r[2], 1e-6)) + math.lgamma(r[3] + 1)
+                                                   for r in rows) / len(rows)},
     }
 
 
