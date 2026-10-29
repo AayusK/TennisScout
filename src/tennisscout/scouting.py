@@ -34,8 +34,10 @@ class ReportUnavailable(RuntimeError):
 
 
 def _client():
-    import anthropic
-
+    try:
+        import anthropic
+    except ImportError as e:
+        raise ReportUnavailable("the anthropic package is missing: pip install -e '.[llm]'") from e
     key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_KEY")
     if not key:
         raise ReportUnavailable("set ANTHROPIC_API_KEY (or ANTHROPIC_KEY) to write reports")
@@ -43,21 +45,25 @@ def _client():
 
 
 def write_report(prediction: dict, client=None) -> str:
+    client = client or _client()
     import anthropic
 
-    client = client or _client()
     try:
-        r = client.messages.create(
+        r = client.beta.messages.create(
             model=MODEL,
-            max_tokens=4000,
+            max_tokens=16000,  # thinking counts against this; the report itself is short
             output_config={"effort": "low"},
+            # A policy decline re-runs on Anthropic's recommended fallback model instead of failing.
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
             system=SYSTEM,
             messages=[{"role": "user", "content": json.dumps(prediction, default=str)}],
         )
     except anthropic.APIStatusError as e:
-        raise ReportUnavailable(f"Anthropic API error {e.status_code}: {e.message}") from e
+        detail = e.body.get("error", {}).get("message") if isinstance(e.body, dict) else None
+        raise ReportUnavailable(f"Anthropic API error {e.status_code}: {detail or e.message}") from e
     except anthropic.APIConnectionError as e:
         raise ReportUnavailable(f"could not reach the Anthropic API: {e}") from e
-    if r.stop_reason == "refusal":
-        raise ReportUnavailable("the model declined to write this report")
+    if r.stop_reason != "end_turn":  # refusal, or cut off at max_tokens: never print half a report
+        raise ReportUnavailable(f"no complete report (stop reason: {r.stop_reason})")
     return "".join(b.text for b in r.content if b.type == "text").strip()
