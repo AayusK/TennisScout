@@ -123,7 +123,8 @@ CREATE TABLE IF NOT EXISTS match (
     source          TEXT NOT NULL,
     source_key      TEXT NOT NULL,
     source_file     TEXT,
-    snapshot_id     TEXT NOT NULL
+    snapshot_id     TEXT NOT NULL,
+    start_time      TEXT                -- scheduled start (UTC) when the source gives one
 );
 CREATE INDEX IF NOT EXISTS match_seq ON match(seq);
 CREATE INDEX IF NOT EXISTS match_winner ON match(winner_id);

@@ -18,6 +18,7 @@ whether they earn their place.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from datetime import date
 
 from .normalize import surface_key
 
@@ -41,6 +42,12 @@ class EloConfig:
     surface_init: str = "flat"  # "flat" | "overall"
     bo5_adjust: bool = False
     pred_scale: float = 1.0  # >1 widens the logistic at prediction time only (calibration), updates unchanged
+    challenger_k_weight: float = 1.0  # K multiplier for Challenger results
+    mov: float = 0.0  # margin of victory: K x (winner's games share / 0.618) ** mov; 0 = off
+    layoff_boost: float = 0.0  # extra K after a break: x(1 + boost * min(days off / 365, 1)) for breaks > 60 days
+    retired_weight: float = 1.0  # K multiplier when the loser retired (an injury, not only being outplayed)
+    slam_k_weight: float = 1.0  # K multiplier for Grand Slam matches
+    qual_k_weight: float = 1.0  # K multiplier for qualifying (API-Tennis rows only; TML has no qualifying)
     established_matches: int = 30  # players whose ratings feed the rank prior
     prior_alpha: float = 0.02  # EMA weight for the rank prior
     prior_min_obs: int = 50
@@ -167,6 +174,13 @@ class EloModel:
         return self.rating.get((pid, bucket), self.cfg.initial), self.n.get((pid, bucket), 0)
 
     # -- predict / update ----------------------------------------------------
+    def _layoff(self, pid: str, today: str | None) -> float:
+        last = self.last_date.get(pid)
+        if not (self.cfg.layoff_boost and last and today):
+            return 1.0
+        days = _days_between(last, today)
+        return 1.0 + self.cfg.layoff_boost * min(days / 365, 1.0) if days > 60 else 1.0
+
     def predict(
         self,
         a: str,
@@ -207,6 +221,7 @@ class EloModel:
         rank_w: int | None = None,
         rank_l: int | None = None,
         date: str | None = None,
+        weight: float = 1.0,
     ) -> None:
         cfg = self.cfg
         bucket = self.bucket(surface, indoor)
@@ -216,17 +231,22 @@ class EloModel:
             for pid, rk in ((winner, rank_w), (loser, rank_l)):
                 if self.n[(pid, OVERALL)] >= cfg.established_matches:
                     self.prior.observe(rk, self.rating[(pid, OVERALL)])
+        boost = {pid: self._layoff(pid, date) for pid in (winner, loser)}
         buckets = (OVERALL,) if bucket == "Unknown" else (OVERALL, bucket)
         for bk in buckets:
             rw, rl = self.rating[(winner, bk)], self.rating[(loser, bk)]
             e = expected(rw, rl)
-            self.rating[(winner, bk)] = rw + k_factor(self.n[(winner, bk)], cfg) * (1 - e)
-            self.rating[(loser, bk)] = rl - k_factor(self.n[(loser, bk)], cfg) * (1 - e)
+            self.rating[(winner, bk)] = rw + weight * boost[winner] * k_factor(self.n[(winner, bk)], cfg) * (1 - e)
+            self.rating[(loser, bk)] = rl - weight * boost[loser] * k_factor(self.n[(loser, bk)], cfg) * (1 - e)
             self.n[(winner, bk)] += 1
             self.n[(loser, bk)] += 1
         if date:
             self.last_date[winner] = date
             self.last_date[loser] = date
+
+
+def _days_between(a: str, b: str) -> int:
+    return (date.fromisoformat(b) - date.fromisoformat(a)).days
 
 
 def confidence(pred: Prediction) -> str:

@@ -27,9 +27,16 @@ class SRConfig:
     drift_var: float = 0.0005  # added to a rating's variance each match: form changes
     mu_alpha: float = 0.002  # EMA weight for the tour-wide serve logit per surface
     surface_var: float = 0.0  # prior variance of per-player surface offsets; 0 turns them off
+    next_gen_format: bool = True  # score Next Gen Finals with short no-ad sets
+    form_sd: float = 0.0  # match-level "form on the day" shift (logit), A up / B down; 0 = independent points
 
     def with_(self, **kw) -> "SRConfig":
         return replace(self, **kw)
+
+
+# 7-point Gauss-Hermite rule for a standard normal: (node, weight).
+_GH = [(0.0, 0.8102646176), (0.8162878829, 0.4256072526), (1.6735516288, 0.0545155828), (2.6519613568, 0.0009717812)]
+GAUSS_NORMAL = [(sign * x * math.sqrt(2), w / math.sqrt(math.pi)) for x, w in _GH for sign in ((1,) if x == 0 else (1, -1))]
 
 
 def sigmoid(x: float) -> float:
@@ -65,15 +72,24 @@ class ServeReturnModel:
     def _eta(self, server: str, returner: str, k: str, mu: float) -> float:
         return mu + sum(sign * self._get(*key)[0] for key, sign in self._terms(server, returner, k))
 
-    def point_probs(self, a: str, b: str, surface: str | None, indoor: str | None) -> tuple[float, float]:
+    def point_probs(self, a: str, b: str, surface: str | None, indoor: str | None, shift: float = 0.0) -> tuple[float, float]:
         k = self.bucket(surface, indoor)
         mu = self.mu.get(k, self.mu.get("Hard", logit(0.64)))
-        return sigmoid(self._eta(a, b, k, mu)), sigmoid(self._eta(b, a, k, mu))
+        return sigmoid(self._eta(a, b, k, mu) + shift), sigmoid(self._eta(b, a, k, mu) - shift)
+
+    form_sd_override: float | None = None  # prediction-time width for scoreline outputs
+
+    def form_nodes(self):
+        """(shift, weight) pairs to average over; a single unshifted point when form_sd is 0."""
+        sd = self.cfg.form_sd if self.form_sd_override is None else self.form_sd_override
+        return [(sd * z, w) for z, w in GAUSS_NORMAL] if sd else [(0.0, 1.0)]
 
     def predict(self, a, b, surface, indoor, best_of, level, tourney, year) -> tuple[float, float, float]:
+        rule = markov.final_set_rule(level, tourney, year, best_of, self.cfg.next_gen_format)
+        p = sum(w * markov.match_win(*self.point_probs(a, b, surface, indoor, d), best_of or 3, rule)
+                for d, w in self.form_nodes())
         pa, pb = self.point_probs(a, b, surface, indoor)
-        rule = markov.final_set_rule(level, tourney, year, best_of)
-        return markov.match_win(pa, pb, best_of or 3, rule), pa, pb
+        return p, pa, pb
 
     def _observe(self, server: str, returner: str, k: str, mu: float, points: int, won: int) -> None:
         terms = self._terms(server, returner, k)
@@ -82,7 +98,7 @@ class ServeReturnModel:
         var = {key: v + (0.0 if "@" in key[1] else self.cfg.drift_var) for key, (_, v) in cur.items()}
         p = sigmoid(mu + sum(sign * cur[key][0] for key, sign in terms))
         info = points * p * (1 - p)
-        total_var = sum(var.values())
+        total_var = sum(var.values()) + self.cfg.form_sd ** 2  # day form is noise the ratings should not chase
         step = (won - points * p) / (1 + total_var * info)
         shrink = info / (1 + total_var * info)
         for key, sign in terms:

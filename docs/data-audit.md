@@ -2,7 +2,7 @@
 
 # Data audit (first milestone)
 
-Run at 2026-10-29T04:09:17Z. Source snapshots:
+Run at 2026-10-29T08:50:57Z. Source snapshots:
 
 - `tml@9aecc242e98b`: tml revision 9aecc242e98b (2026-10-27T00:54:00+01:00), collected 2026-10-29T02:26:42Z
 - `mcp@1813a1309b7e`: mcp revision 1813a1309b7e (2026-09-18T10:35:54+02:00), collected 2026-10-29T02:32:05Z
@@ -30,9 +30,9 @@ Strata: Grand Slam 40, Masters 1000 40, ATP 500 30, ATP 250 30, Finals / team / 
 | Pre-match rankings present | 100.0% |
 | Surface present | 100.0% |
 | Indoor/outdoor flag present | 96.0% (tournament-level only; match-level roof status: 0.0%) |
-| Altitude present | 95.3% (from the unverified manual venue seed) |
+| Altitude present | 95.3% (manual venue seed, checked against a DEM below) |
 | Outdoor matches with venue coordinates | 128 of 129 |
-| Outdoor matches with reconstructed weather joined | 126 of 129 (Open-Meteo reanalysis, city-level, edition window) |
+| Outdoor matches with reconstructed weather joined | 128 of 129 (Open-Meteo reanalysis, city-level, edition window) |
 | Event-time precision | tourney_week: 150 (median window 9 days) |
 | Exact match date available (via linked MCP chart) | 24.0% |
 | Start time of day available (via MCP) | 11.3% |
@@ -45,7 +45,7 @@ Strata: Grand Slam 40, Masters 1000 40, ATP 500 30, ATP 250 30, Finals / team / 
 
 ## Identity (whole TML backbone)
 
-Match rows by identity status: ok 198,034, placeholder 101, id_name_conflict 5, unknown_id 2, missing_id 1. Rows that are not `ok` are kept in the database but excluded from ratings, training and scoring.
+Match rows by identity status: ok 259,467, placeholder 101, id_name_conflict 5, unknown_id 2, missing_id 1. Rows that are not `ok` are kept in the database but excluded from ratings, training and scoring.
 
 ID/name conflicts (the source attached one player's ATP ID to another player's row):
 
@@ -55,16 +55,16 @@ ID/name conflicts (the source attached one player's ATP ID to another player's r
 - 2012 Davis Cup G2 PO: HKG vs SRI RR: row says 'Harshana Godamanna' but ATP ID G793 is 'Juan-Andres Gomez'
 - 2020 Sofia R32: row says 'Marc-Andrea Huesler' but ATP ID MH30 is 'John Millman'
 
-Homonyms among players with matches (same normalized name, different ATP IDs): 16, e.g. antonio gonzalez, dan cassidy, david mitchell, derek schroder, gonzalo nunez, john harrison, john ross, john sharpe. Name lookups for these return all candidates.
+Homonyms among players with matches (same normalized name, different ATP IDs): 76, e.g. a baez, a balestrieri, a goransson, a huseinovic, a motti, a rossi, a sotelo, a timangkul. Name lookups for these return all candidates.
 
-Players seen under more than one display name: 11.
+Players seen under more than one display name: 87.
 
 ## Timestamps (whole TML backbone)
 
-- Event-time precision: day 267, tourney_week 197,876. Before 2026 the source dates only the tournament week, so each match's event time is a window.
-- Rows with a publication timestamp: 0 of 198,143.
-- Editions whose TML date is contradicted by exact-dated MCP charts: 18.
-- Latest event in the mirror: 2026-01-21.
+- Event-time precision: day 267, minute 61,433, tourney_week 197,876. Before 2026 the source dates only the tournament week, so each match's event time is a window.
+- Rows with a publication timestamp: 0 of 259,576.
+- Editions whose TML date is contradicted by exact-dated MCP charts: 20.
+- Latest event in the mirror: 2026-10-29.
 
 ## Prediction markets
 
@@ -74,15 +74,14 @@ Each exchange match market is linked to our matches on both players (internal ID
 |---|---:|---:|
 | Match events listed | 4,657 | 44,483 |
 | First market date | 2025-08-01 | 2025-09-19 |
-| after_tml_coverage | 3,454 | 42,468 |
-| linked | 910 | 559 |
-| player_not_in_tml | 19 | 1,006 |
-| no_tour_match | 271 | 417 |
-| second_market_same_match | 2 | 30 |
-| ambiguous | 1 | 3 |
-| Our matches in the overlap window | 1,102 | 674 |
-| … with a linked market | 910 (82.6%) | 559 (82.9%) |
-| Settled winner agrees with our data | 902 of 902 | 557 of 558 |
+| player_not_in_tml | 3 | 27,407 |
+| linked | 4,072 | 10,300 |
+| no_tour_match | 578 | 6,733 |
+| second_market_same_match | 3 | 35 |
+| ambiguous | 1 | 8 |
+| Our matches in the overlap window | 19,499 | 17,445 |
+| … with a linked market | 4,072 (20.9%) | 10,300 (59.0%) |
+| Settled winner agrees with our data | 4,043 of 4,043 | 10,253 of 10,254 |
 
 Price history around the match day, for a deterministic sample of linked markets:
 
@@ -91,8 +90,8 @@ Price history around the match day, for a deterministic sample of linked markets
 | Markets sampled | 15 | 15 |
 | Median gap between observations | 60 s | 60 s |
 | Bid and ask available | 15 of 15 | 0 of 15 |
-| Scheduled start known | 7 of 15 | 15 of 15 |
-| Observation in the hour before scheduled start | 5 of 7 | 14 of 15 |
+| Scheduled start known | 12 of 15 | 15 of 15 |
+| Observation in the hour before scheduled start | 10 of 12 | 15 of 15 |
 
 Scheduled start is the exchange's own schedule, not first serve: no source here records first serve, and none records point or game timestamps, so in-play price paths cannot be joined.
 
@@ -102,30 +101,35 @@ Archived forecast check (Open-Meteo historical-forecast API, needed for leak-fre
 
 | Link status | All years | 2019 on |
 |---|---:|---:|
-| linked | 6,836 | 3,406 |
-| not_tour_level | 465 | 343 |
-| beyond_source_coverage | 135 | 135 |
-| no_candidate | 103 | 54 |
-| player_unresolved | 23 | 19 |
+| linked | 7,156 | 3,726 |
+| not_tour_level | 283 | 161 |
+| no_candidate | 118 | 69 |
+| player_unresolved | 5 | 1 |
 | ambiguous | 2 | 1 |
 | malformed_row | 1 | 1 |
 
-Player-name resolution: resolved 14,960, unresolved 120, resolved_via_match_fuzzy 44, resolved_via_match 3, ambiguous 1.
+Player-name resolution: resolved 15,041, resolved_via_match_fuzzy 50, unresolved 30, resolved_via_match 6, ambiguous 1.
 
-Of 6,836 linked charts, 280 disagree with TML about the surface (267 are MCP 'Hard' vs TML 'Carpet'), and 3,881 carry a start time.
+Of 7,156 linked charts, 287 disagree with TML about the surface (267 are MCP 'Hard' vs TML 'Carpet'), and 3,957 carry a start time.
 
 Name variants resolved only because the match-level join was unique (candidates for `metadata/player_aliases.csv` after review):
 
 - MCP “Albert Ramos” → Albert Ramos-Vinolas (`P005911`), 24 chart(s)
 - MCP “Soon Woo Kwon” → Soonwoo Kwon (`P003813`), 5 chart(s)
+- MCP “Bu Yunchaokete” → Yunchaokete Bu (`P007535`), 4 chart(s)
+- MCP “Goncalo Oliveira” → Gonzalo Oliveira (`P007941`), 3 chart(s)
 - MCP “Victor Estrella” → Victor Estrella Burgos (`P002160`), 3 chart(s)
-- MCP “Inigo Cervantes Huegun” → Inigo Cervantes (`P001627`), 2 chart(s)
 - MCP “Samuel Groth” → Sam Groth (`P002822`), 2 chart(s)
-- MCP “Abedallah Shelbayh” → Abdullah Shelbayh (`P006089`), 1 chart(s)
-- MCP “Alexander Cozbinov” → Alexandr Cozbinov (`P001692`), 1 chart(s)
-- MCP “Bu Yunchaokete” → Yunchaokete Bu (`P007535`), 1 chart(s)
+- MCP “Arklon Huertas Del Pino” → Arklon Huertas Del Pino Cordova (`P002958`), 1 chart(s)
 - MCP “Franco Skugor” → Franko Skugor (`P006597`), 1 chart(s)
+- MCP “Jose Hernandez” → Jose Hernandez-Fernandez (`P003191`), 1 chart(s)
 - MCP “Jose Rubin Statham” → Rubin Statham (`P006598`), 1 chart(s)
+- MCP “Juan Bautista Torres” → Bautista Torres Juan (`P007951`), 1 chart(s)
+- MCP “Marcelo Tomas Barrios Vera” → Tomas Barrios Vera (`P001208`), 1 chart(s)
 - MCP “Mark Kevin Goellner” → Marc-Kevin Goellner (`P002691`), 1 chart(s)
 - MCP “Martin Damm Sr” → Martin Damm (`P001895`), 1 chart(s)
 - MCP “Seong Chan Hong” → Seongchan Hong (`P003230`), 1 chart(s)
+
+## Venue table check
+
+Run at 2026-10-29T07:40:30Z. Each row of `metadata/venues.csv` was compared with Open-Meteo at its coordinates: terrain elevation from the 90 m DEM (agree within 60 m or 25%) and the IANA timezone's region. 128 of 128 rows agree. This confirms the coordinates sit at the stated altitude and on the right continent, not that they point at the exact venue.

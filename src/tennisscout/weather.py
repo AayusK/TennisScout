@@ -40,6 +40,9 @@ def fetch_hourly(lat: float, lon: float, start: date, end: date, kind: str = "ar
         "hourly": ",".join(HOURLY_VARS),
         "timezone": "UTC",
     }
+    cached = _stored().get(json.dumps({"url": url, **params}, sort_keys=True))
+    if cached:
+        return cached
     r = http.get(url, params)
     record = {
         "kind": kind,
@@ -51,6 +54,26 @@ def fetch_hourly(lat: float, lon: float, start: date, end: date, kind: str = "ar
     }
     _store(record)
     return record
+
+
+_STORED: dict | None = None
+
+
+def _stored() -> dict:
+    """Successful responses already on disk, keyed by request, so re-runs do not spend the daily quota."""
+    global _STORED
+    if _STORED is None:
+        _STORED = {}
+        for f in sorted((config.DATA_DIR / "weather").glob("*.jsonl.gz")):
+            with gzip.open(f, "rt", encoding="utf-8") as fh:
+                try:
+                    for line in fh:
+                        rec = json.loads(line)
+                        if rec.get("status") == 200:
+                            _STORED[json.dumps(rec["request"], sort_keys=True)] = rec
+                except (EOFError, ValueError):  # a run killed mid-write leaves a truncated tail
+                    pass
+    return _STORED
 
 
 def _store(record: dict) -> Path:

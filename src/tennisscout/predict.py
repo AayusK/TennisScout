@@ -14,8 +14,9 @@ import sqlite3
 from dataclasses import asdict, dataclass, field
 from datetime import date
 
-from . import config, db, markov
+from . import config, db, markov, ml_layer
 from .backtest import safe_logit
+from .features import ALL, FeatureState, edition_country, player_info, stack_row
 from .elo import OVERALL, EloConfig, EloModel, confidence
 from .normalize import norm_name
 from .serve_return import ServeReturnModel, SRConfig
@@ -131,6 +132,28 @@ def load_sr(conn: sqlite3.Connection) -> ServeReturnModel | None:
     return m
 
 
+def live_features(conn: sqlite3.Connection, a: str, b: str, today: date, surface: str | None = None,
+                  indoor: bool = False, best_of: int = 3) -> dict[str, float]:
+    """The stacking features as of ``today``, computed the same way as in the replay (features.py)."""
+    st = FeatureState(player_info(conn), edition_country(conn))
+    rows = conn.execute(
+        """SELECT m.match_id, m.event_date_lo, m.winner_id, m.loser_id, COALESCE(m.surface, e.surface)
+           FROM match m JOIN tournament_edition e USING (edition_id)
+           WHERE (m.winner_id IN (?, ?) OR m.loser_id IN (?, ?)) AND m.identity_status = 'ok'
+             AND m.outcome NOT IN ('walkover', 'default', 'unknown') ORDER BY m.seq""", (a, b, a, b))
+    for mid, d, w, l, surf in rows:
+        st.update(_Row(mid, d, w, l, surf))
+    # shortcut: level and round are not request inputs, so "masters" and "late" stay 0 and best-of-5 stands in for a slam.
+    m = _Row("", today.isoformat(), a, b, surface, best_of, "I" if indoor else "O", "G" if best_of == 5 else None)
+    return dict(zip(ALL, st.features(m, a, b) + st.context(m, a, b)))
+
+
+class _Row:
+    def __init__(self, match_id, d, w, l, surface=None, best_of=None, indoor=None, level=None, round=None):
+        self.match_id, self.date, self.winner_id, self.loser_id, self.surface = match_id, d, w, l, surface
+        self.best_of, self.indoor, self.level, self.round = best_of, indoor, level, round
+
+
 def predict(
     conn: sqlite3.Connection,
     player_a: str,
@@ -169,6 +192,41 @@ def predict(
             "hold": [markov.hold(pa), markov.hold(pb)],
             "serve_return_matches": [sr.n.get(a.player_id, 0), sr.n.get(b.player_id, 0)],
         })
+        stack = json.loads(db.get_meta(conn, "stack") or "null")
+        if stack and stack["features"]:
+            feats = live_features(conn, a.player_id, b.player_id, date.today(), surface, indoor, best_of)
+            x = stack_row(safe_logit(components["elo_sr_blend"]), [feats[f] for f in ALL], stack["features"])
+            z = sum(c * v for c, v in zip(stack["coef"], x))
+            components["stacked"] = 1 / (1 + math.exp(-z))
+            components["walk_forward"] = components["stacked"]  # meta "stack" holds the latest yearly refit then
+            components["context_features"] = {f: feats[f] for f in stack["features"]}
+            gbm_text = db.get_meta(conn, "gbm_model")
+            if gbm_text and ml_layer.available():
+                import lightgbm as lgb
+                import numpy as np
+
+                x = ml_layer.row(components["stacked"], components["elo_selected"], components["serve_return"],
+                                 components["elo_sr_blend"], [feats[f] for f in ALL], best_of,
+                                 "G" if best_of == 5 else None, surface)
+                components["gbm"] = float(ml_layer.predict(lgb.Booster(model_str=gbm_text), np.array([x]))[0])
+        # Set scores and tiebreaks use their own (validation-chosen) form-on-the-day width, and are anchored
+        # to the served win probability so the two outputs agree.
+        sr.form_sd_override = json.loads(db.get_meta(conn, "scoreline_form_sd") or "null")
+        rule = markov.final_set_rule("G" if best_of == 5 else None, None, date.today().year, best_of)
+        io = "I" if indoor else "O"
+        served = db.get_meta(conn, "serving_model", "elo_selected")
+        target = components.get(served, components["elo_sr_blend"])
+        d0 = markov.implied_shift(*sr.point_probs(a.player_id, b.player_id, surface, io), target, best_of, rule, sr.form_nodes())
+        dist: dict[str, float] = {}
+        tiebreaks = 0.0
+        for d, w in sr.form_nodes():
+            qa, qb = sr.point_probs(a.player_id, b.player_id, surface, io, d0 + d)
+            for k, v in markov.set_scores(qa, qb, best_of, rule).items():
+                dist[k] = dist.get(k, 0.0) + w * v
+            sets = sum(v * sum(map(int, k.split("-"))) for k, v in markov.set_scores(qa, qb, best_of, rule).items())
+            tiebreaks += w * sets * markov.reach_tiebreak(qa, qb)
+        components["set_scores"] = dist
+        components["expected_tiebreaks"] = tiebreaks * json.loads(db.get_meta(conn, "tiebreak_scale") or "1")
     serving = db.get_meta(conn, "serving_model", "elo_selected")
     serving = serving if serving in components else "elo_selected"
 
@@ -187,7 +245,8 @@ def predict(
     if sr and min(components["serve_return_matches"]) < 15:
         caveats.append("Serve/return estimates for at least one player rest mostly on the pool prior (few stat lines).")
     caveats.append(("Surface Elo + serve/return Markov" if sr else "Surface Elo only")
-                   + ": no fatigue, conditions, news or market inputs yet.")
+                   + (" + rest/load/age context" if "stacked" in components else "")
+                   + ": no weather, injury news or market inputs yet.")
 
     return MatchPrediction(
         player_a=a,

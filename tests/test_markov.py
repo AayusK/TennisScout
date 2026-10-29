@@ -1,8 +1,9 @@
 import pytest
 
-from tennisscout.markov import STANDARD, final_set_rule, hold, match_win, set_win, tiebreak
+from tennisscout import markov
+from tennisscout.markov import STANDARD, final_set_rule, hold, match_win, reach_tiebreak, set_win, tiebreak
 
-RULES = [STANDARD, None, (12, 7), (6, 10), ("match_tb", 10)]
+RULES = [STANDARD, None, (12, 7), (6, 10), ("match_tb", 10), ("short",)]
 
 
 def test_hold_known_values():
@@ -40,3 +41,34 @@ def test_final_set_rules():
     assert final_set_rule("G", "US Open", 2015, 5) == STANDARD
     assert final_set_rule("D", "Davis Cup WG", 2014, 5) is None
     assert final_set_rule("250", "Brisbane", 2024, 3) == STANDARD
+
+
+def test_next_gen_and_tiebreak_reach():
+    assert final_set_rule("A", "Next Gen ATP Finals", 2023, 5) == ("short",)
+    assert final_set_rule("A", "Next Gen ATP Finals", 2023, 5, next_gen=False) == STANDARD
+    # Short sets are more random: the favourite gains less.
+    assert 0.5 < set_win(0.68, 0.6, ("short",)) < set_win(0.68, 0.6)
+    assert reach_tiebreak(0.8, 0.8) > reach_tiebreak(0.6, 0.6)
+
+
+def test_set_score_distribution_sums_and_matches_match_win():
+    from tennisscout.markov import set_scores
+
+    for bo in (3, 5):
+        d = set_scores(0.66, 0.6, bo, (6, 10))
+        assert sum(d.values()) == pytest.approx(1.0)
+        wins = sum(v for k, v in d.items() if int(k.split("-")[0]) > int(k.split("-")[1]))
+        assert wins == pytest.approx(match_win(0.66, 0.6, bo, (6, 10)))
+
+
+def test_implied_shift_hits_the_target_and_keeps_symmetry():
+    import math
+
+    nodes = [(-0.2, 0.25), (0.0, 0.5), (0.2, 0.25)]
+    for target, bo in ((0.7, 3), (0.25, 5), (0.5, 3)):
+        d = markov.implied_shift(0.66, 0.6, target, bo, markov.STANDARD, nodes)
+        la, lb = math.log(0.66 / 0.34), math.log(0.6 / 0.4)
+        sig = lambda x: 1 / (1 + math.exp(-x))
+        p = sum(w * markov.match_win(sig(la + d + s), sig(lb - d - s), bo) for s, w in nodes)
+        assert abs(p - target) < 1e-5
+    assert abs(markov.implied_shift(0.63, 0.63, 0.5)) < 1e-6

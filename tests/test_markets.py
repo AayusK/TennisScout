@@ -65,3 +65,25 @@ def test_market_coverage_links_and_guards(loaded, monkeypatch):
     assert k["settled_winner_vs_tml"] == {"agrees": 2}
     # The pre-main-draw Polymarket event stays unlinked.
     assert p["status"]["linked"] == 1 and p["status"]["no_tour_match"] == 1
+
+
+def test_kalshi_fee_and_checkpoint_lookup():
+    from tennisscout.market_eval import at, kalshi_fee
+
+    assert kalshi_fee(0.5) == 0.02  # 0.07 * 0.25 = 0.0175 -> 2 cents
+    assert kalshi_fee(0.9) == 0.01
+    series = [(100, 0.4), (200, 0.5), (300, 0.6)]
+    assert at(series, 250) == (200, 0.5)
+    assert at(series, 50) is None
+
+
+def test_trading_counts_edge_after_fee():
+    from tennisscout import market_eval
+
+    rows = [{"model": 0.7, "y": 1, "kalshi_ask_p1": 0.5, "kalshi_ask_p2": 0.52},
+            {"model": 0.7, "y": 0, "kalshi_ask_p1": 0.5, "kalshi_ask_p2": 0.52},
+            {"model": 0.5, "y": 1, "kalshi_ask_p1": 0.5, "kalshi_ask_p2": 0.52}]  # no edge on the last row
+    t = market_eval.trading(rows)["edge>=0.1"]
+    fee = market_eval.kalshi_fee(0.5)
+    assert t["bets"] == 2 and abs(t["pnl_per_contract_sum"] - round((1 - 0.5 - fee) + (0 - 0.5 - fee), 2)) < 1e-9
+    assert t["pnl_se"] > 0

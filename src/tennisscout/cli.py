@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import audit, backtest, db, ingest_charting, ingest_tml, markets, predict, report, sources
+from . import api_tennis, audit, backtest, db, ingest_api_tennis, ingest_charting, ingest_tml, markets, predict, report, sources, venues
 
 
 def _conn():
@@ -27,6 +27,10 @@ def cmd_ingest(args) -> None:
     conn = _conn()
     rep = ingest_tml.ingest(conn, sources.load_snapshot("tml"))
     print(json.dumps(rep.__dict__, indent=2))
+    if (api_tennis.RAW / "tournaments.json.gz").exists():
+        ingest_api_tennis.ingest(conn)
+    else:
+        print("no API-Tennis data; run `tennisscout fetch-api-tennis` to add 2026 and Challenger results")
     try:
         mcp = sources.load_snapshot("mcp")
     except FileNotFoundError:
@@ -46,6 +50,36 @@ def cmd_audit(args) -> None:
     conn = _conn()
     res = audit.run(conn)
     print(json.dumps(res["sample_summary"], indent=2))
+
+
+def cmd_verify_venues(args) -> None:
+    from datetime import datetime, timezone
+
+    rows = venues.verify()
+    with _conn() as conn:
+        db.set_meta(conn, "venue_check", json.dumps({"run_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "rows": rows}))
+    bad = [r for r in rows if r["status"] != "checked" or not (r["elevation_ok"] and r["region_ok"])]
+    print(f"{len(rows) - len(bad)} of {len(rows)} venue rows agree with the DEM and timezone")
+    for r in bad:
+        print(" ", r)
+
+
+def cmd_upcoming(args) -> None:
+    from . import upcoming
+
+    for r in upcoming.upcoming(_conn(), args.days):
+        p = f"{r['p_a']:.1%}  [{r['model']}, {r['confidence']}]" if "p_a" in r else f"–  ({r['error']})"
+        if "kalshi_p_a" in r:
+            p += f"  Kalshi {r['kalshi_p_a']:.1%} (bid {r['kalshi_bid_a']:.2f} / ask {r['kalshi_ask_a']:.2f})"
+        print(f"{r['start'][:16]}  {r['tournament']} {r['round']}: {r['player_a']} vs {r['player_b']}  P({r['player_a']}) = {p}")
+
+
+def cmd_evaluate_markets(args) -> None:
+    from . import market_eval
+
+    out = market_eval.evaluate(_conn())
+    for key, c in out["comparisons"].items():
+        print(f"{key}: n={c['n']} market log loss {c['market']['log_loss']:.4f} model {c['model']['log_loss']:.4f}")
 
 
 def cmd_report(args) -> None:
@@ -97,12 +131,24 @@ def cmd_search(args) -> None:
         print(f"{r.player_id}  {r.name:30s} {r.ioc or '':4s} born {r.birthdate or '?':9s} last {r.last_match or '-':10s} {r.matches} matches")
 
 
+def cmd_fetch_api_tennis(args) -> None:
+    from datetime import date
+
+    print("tournaments", api_tennis.fetch_tournaments())
+    api_tennis.fetch_fixtures("atp", date(2026, 1, 1), date.today())
+    api_tennis.fetch_fixtures("challenger", date(2019, 1, 1), date.today())
+    print("player lists fetched", api_tennis.fetch_players())
+
+
 def cmd_fetch_markets(args) -> None:
     print(json.dumps(markets.fetch_listings(), indent=2))
 
 
 def cmd_archive_markets(args) -> None:
-    print(json.dumps(markets.archive_once(), indent=2))
+    if args.compact:
+        print(json.dumps(markets.archive_compact(Path(args.out)), indent=2))
+    else:
+        print(json.dumps(markets.archive_once(), indent=2))
 
 
 def cmd_serve(args) -> None:
@@ -125,6 +171,11 @@ def main(argv: list[str] | None = None) -> None:
     b.add_argument("-v", "--verbose", action="store_true")
     b.set_defaults(func=cmd_backtest)
     sub.add_parser("audit", help="run the data audit").set_defaults(func=cmd_audit)
+    up = sub.add_parser("upcoming", help="scheduled ATP matches from API-Tennis with predictions (needs API_TENNIS_KEY)")
+    up.add_argument("--days", type=int, default=2)
+    up.set_defaults(func=cmd_upcoming)
+    sub.add_parser("evaluate-markets", help="model vs Kalshi/Polymarket at the price checkpoints (after fetch-markets)").set_defaults(func=cmd_evaluate_markets)
+    sub.add_parser("verify-venues", help="check venue elevations and timezones against Open-Meteo (128 calls)").set_defaults(func=cmd_verify_venues)
     sub.add_parser("report", help="write docs/backtest.md and docs/data-audit.md").set_defaults(func=cmd_report)
     a = sub.add_parser("all", help="ingest, backtest, audit, report")
     a.add_argument("-v", "--verbose", action="store_true")
@@ -144,8 +195,12 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--limit", type=int, default=10)
     s.set_defaults(func=cmd_search)
 
+    sub.add_parser("fetch-api-tennis", help="store API-Tennis ATP 2026 + Challenger results (needs API_TENNIS_KEY)").set_defaults(func=cmd_fetch_api_tennis)
     sub.add_parser("fetch-markets", help="store historical Kalshi/Polymarket tennis listings (used by the audit)").set_defaults(func=cmd_fetch_markets)
-    sub.add_parser("archive-markets", help="store one raw snapshot of Kalshi/Polymarket tennis books").set_defaults(func=cmd_archive_markets)
+    am = sub.add_parser("archive-markets", help="store one snapshot of Kalshi/Polymarket tennis books")
+    am.add_argument("--compact", action="store_true", help="ATP singles, top-5 depth, one small gzip per run")
+    am.add_argument("--out", default="archive/markets", help="output directory for --compact")
+    am.set_defaults(func=cmd_archive_markets)
     sv = sub.add_parser("serve", help="run the FastAPI service")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8000)

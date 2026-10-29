@@ -254,7 +254,7 @@ def ingest(conn: sqlite3.Connection, snap: Snapshot, registry_dir: Path | None =
                 *stats,
                 lo, hi, meta["precision"], None, collected_at,
                 f"{hi}T23:59:59Z" if hi else None, "event_date_upper_bound",
-                status, note, "tml", key, fname, snap.snapshot_id,
+                status, note, "tml", key, fname, snap.snapshot_id, None,
             )
         )
         mext_rows.append(("tml", key, mid))
@@ -280,6 +280,7 @@ def ingest(conn: sqlite3.Connection, snap: Snapshot, registry_dir: Path | None =
         conn.executemany("INSERT INTO match_external_id VALUES (?,?,?)", mext_rows)
         db.set_meta(conn, "tml_snapshot", snap.snapshot_id)
         db.set_meta(conn, "latest_event_date", latest)
+        db.set_meta(conn, "tml_coverage_end", latest)
     for reg in (preg, treg, ereg, mreg):
         reg.save()
 

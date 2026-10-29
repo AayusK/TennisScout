@@ -1,0 +1,56 @@
+name: nightly-refresh
+
+# Nightly (spec, "Stack"): fresh results -> ingest under permanent IDs -> chronological backtest and
+# model selection -> regenerated docs. New permanent IDs (registry/) and the regenerated docs/ are
+# committed back to this branch, because the registry must have one history: pull before ingesting
+# locally. The database is not uploaded: the repository is public and the TML-Database terms forbid
+# redistributing its raw data (the Actions cache below is readable by workflows only).
+#
+# Needs the repository secret API_TENNIS_KEY for post-January-2026 results; without it the step is
+# skipped and only the TML/MCP mirrors refresh. Scheduled runs only fire from the default branch.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[ml]"
+      - name: Restore source mirrors and API responses
+        uses: actions/cache@v4
+        with:
+          path: data/raw
+          key: raw-${{ github.run_id }}
+          restore-keys: raw-
+      - run: tennisscout fetch
+      - name: API-Tennis results
+        env:
+          API_TENNIS_KEY: ${{ secrets.API_TENNIS_KEY }}
+        run: |
+          if [ -n "$API_TENNIS_KEY" ]; then tennisscout fetch-api-tennis; else echo "API_TENNIS_KEY not set; skipping"; fi
+      - run: tennisscout ingest
+      - run: tennisscout backtest
+      - run: tennisscout report
+      - name: Commit new IDs and reports
+        run: |
+          git config user.name "tennisscout-nightly"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add registry docs
+          git diff --cached --quiet && exit 0
+          git commit -q -m "nightly: registry and reports $(date -u +%Y-%m-%d)"
+          for i in 1 2 3; do git push -q && break; git pull -q --rebase; done
