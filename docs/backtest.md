@@ -62,15 +62,15 @@ Log loss of the served blend; lower is better.
 
 The Markov chain also predicts how a match is won. Its point probabilities are anchored so that its match-win chance equals the served model's (the serve/return ratings set how serve-dominated the matchup is). Checked against actual scores (completed matches):
 
-| Window | n | Straight sets, predicted | observed | log loss | Tiebreaks per match, predicted | observed |
-|---|---:|---:|---:|---:|---:|---:|
-| validation | 14,180 | 0.590 | 0.605 | 0.6593 | 0.526 | 0.488 |
-| test | 18,438 | 0.588 | 0.605 | 0.6526 | 0.523 | 0.481 |
-| forward | 2,454 | 0.590 | 0.601 | 0.6563 | 0.536 | 0.507 |
-| serve_return_only_test | 18,438 | 0.604 | 0.605 | 0.6569 | 0.505 | 0.481 |
-| independent_points_test | 18,438 | 0.553 | 0.605 | 0.6705 | 0.560 | 0.481 |
+| Window | n | Straight sets, predicted | observed | log loss | Tiebreaks per match, chain | calibrated | observed |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| validation | 14,180 | 0.590 | 0.605 | 0.6593 | 0.526 | 0.488 | 0.488 |
+| test | 18,438 | 0.588 | 0.605 | 0.6526 | 0.523 | 0.484 | 0.481 |
+| forward | 2,454 | 0.590 | 0.601 | 0.6563 | 0.536 | 0.497 | 0.507 |
+| serve_return_only_test | 18,438 | 0.604 | 0.605 | 0.6569 | 0.505 | – | 0.481 |
+| independent_points_test | 18,438 | 0.553 | 0.605 | 0.6705 | 0.560 | – | 0.481 |
 
-Match-level form on the day (sd 0.15 on the logit scale, chosen on validation straight-sets log loss plus the tiebreak count's Poisson likelihood) is what brings these into line: with independent points the chain predicts too few straight sets and too many tiebreaks. `serve_return_only_test` is the same chain without the anchor.
+Match-level form on the day (sd 0.15 on the logit scale, chosen on validation straight-sets log loss plus the tiebreak count's Poisson likelihood) is what brings these into line: with independent points the chain predicts too few straight sets and too many tiebreaks. `serve_return_only_test` is the same chain without the anchor. The calibrated tiebreak count multiplies the chain's by 0.927, fitted on validation (so validation matches by construction).
 
 ## Context features on top of the served model
 
@@ -208,6 +208,8 @@ Selected configuration: `surface_weight=0.5`, `split_indoor_hard=False`, `new_pl
 | baseline (FiveThirtyEight-style blend) | margin of victory, cubed | 0.60630 | 0.64485 |
 | baseline (FiveThirtyEight-style blend) | layoff boost 0.5 | 0.60118 | 0.63479 |
 | baseline (FiveThirtyEight-style blend) | layoff boost 1.0 | 0.60206 | 0.63579 |
+| baseline (FiveThirtyEight-style blend) | retirements at half weight | 0.60170 | 0.63440 |
+| baseline (FiveThirtyEight-style blend) | retirements ignored | 0.60340 | 0.63509 |
 | baseline (FiveThirtyEight-style blend) | prediction scale x1.1 | 0.59750 | 0.62949 |
 | baseline (FiveThirtyEight-style blend) | prediction scale x1.2 | 0.59608 | 0.62665 |
 | baseline (FiveThirtyEight-style blend) | prediction scale x1.3 | 0.59587 | 0.62514 |
@@ -231,6 +233,8 @@ Selected configuration: `surface_weight=0.5`, `split_indoor_hard=False`, `new_pl
 | + prediction scale x1.3 | margin of victory, cubed | 0.59413 | 0.62722 |
 | + prediction scale x1.3 | layoff boost 0.5 | 0.59594 | 0.62534 |
 | + prediction scale x1.3 | layoff boost 1.0 | 0.59629 | 0.62586 |
+| + prediction scale x1.3 | retirements at half weight | 0.59638 | 0.62516 |
+| + prediction scale x1.3 | retirements ignored | 0.59735 | 0.62553 |
 | + margin of victory, squared | surface_weight=0.0 (overall only) | 0.59770 | 0.62959 |
 | + margin of victory, squared | surface_weight=0.25 | 0.59354 | 0.62480 |
 | + margin of victory, squared | surface_weight=0.75 | 0.59767 | 0.63004 |
@@ -245,6 +249,8 @@ Selected configuration: `surface_weight=0.5`, `split_indoor_hard=False`, `new_pl
 | + margin of victory, squared | k_num=300 | 0.59375 | 0.62611 |
 | + margin of victory, squared | layoff boost 0.5 | 0.59356 | 0.62509 |
 | + margin of victory, squared | layoff boost 1.0 | 0.59393 | 0.62561 |
+| + margin of victory, squared | retirements at half weight | 0.59406 | 0.62484 |
+| + margin of victory, squared | retirements ignored | 0.59531 | 0.62524 |
 | + best-of-5 adjustment | surface_weight=0.0 (overall only) | 0.59814 | 0.63118 |
 | + best-of-5 adjustment | surface_weight=0.25 | 0.59321 | 0.62568 |
 | + best-of-5 adjustment | surface_weight=0.75 | 0.59710 | 0.63077 |
@@ -258,6 +264,8 @@ Selected configuration: `surface_weight=0.5`, `split_indoor_hard=False`, `new_pl
 | + best-of-5 adjustment | k_num=300 | 0.59367 | 0.62724 |
 | + best-of-5 adjustment | layoff boost 0.5 | 0.59297 | 0.62571 |
 | + best-of-5 adjustment | layoff boost 1.0 | 0.59349 | 0.62631 |
+| + best-of-5 adjustment | retirements at half weight | 0.59349 | 0.62545 |
+| + best-of-5 adjustment | retirements ignored | 0.59494 | 0.62594 |
 | + merge indoor hard into hard | surface_weight=0.0 (overall only) | 0.59814 | 0.63118 |
 | + merge indoor hard into hard | surface_weight=0.25 | 0.59359 | 0.62610 |
 | + merge indoor hard into hard | surface_weight=0.75 | 0.59539 | 0.62858 |
@@ -270,6 +278,8 @@ Selected configuration: `surface_weight=0.5`, `split_indoor_hard=False`, `new_pl
 | + merge indoor hard into hard | k_num=300 | 0.59371 | 0.62713 |
 | + merge indoor hard into hard | layoff boost 0.5 | 0.59279 | 0.62544 |
 | + merge indoor hard into hard | layoff boost 1.0 | 0.59331 | 0.62608 |
+| + merge indoor hard into hard | retirements at half weight | 0.59325 | 0.62516 |
+| + merge indoor hard into hard | retirements ignored | 0.59466 | 0.62568 |
 
 </details>
 

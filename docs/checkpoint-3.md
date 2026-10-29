@@ -20,7 +20,8 @@ Generated detail: [backtest](backtest.md), [markets](markets.md), [audit](data-a
   features chosen greedily on validation. Selected: age gap, experience gap, rest days, shrunk
   head-to-head and 14-day load, plus terms that rescale confidence: less confidence when either
   player is new, more indoors and in best-of-five. Rejected: left-handers, home country, surface
-  switch, time-zone travel, surface/level/round scaling, and a retired-or-walkover flag.
+  switch, time-zone travel, surface/level/round scaling, a retired-or-walkover flag, and residual
+  form.
 - **Walk-forward refit.** The layer's weights are refit each January on the previous two years.
   The 2-year window was chosen on 2016–18.
 - **Optional LightGBM layer** (`ml_layer.py`). It is tried inside validation every run and
@@ -55,16 +56,18 @@ Tour main draw. The served model is the walk-forward context layer.
   by 0.0059 ± 0.0008 on test and 0.0054 ± 0.0023 on forward.
 - **Walk-forward is neutral on test** (−0.0002 ± 0.0004) and helps on forward (+0.0030 ± 0.0009,
   z = 3.5). It was adopted on validation; the forward gain suggests 2026 drifted from the years
-  the fixed weights were fitted on.
+  the fixed weights were fitted on. Even so, forward favourites win slightly more often than
+  predicted (0.7–0.8 bin: 79% won vs 74% predicted, about 2 se). The 2027 refit will absorb it;
+  tuning on forward would spoil the holdout.
 - **Checkpoint 2's served blend scored 0.6142 on test** (on a slightly different match set), so
   the served model has improved by about 0.0145 since then. Part of that is the Challenger data and MOV changes to Elo; part is the
   layer.
 - **Scorelines.** Anchoring the chain to the served probability improves straight-sets log loss
   on test from 0.6569 to 0.6526 (forward: 0.6617 to 0.6563). Straight sets are now slightly under
-  predicted (0.588 vs 0.605 observed on test), and tiebreaks are over predicted (0.52 per match vs
-  0.48). The form width (sd 0.15) was chosen on validation by straight-sets log loss plus the
-  tiebreak count's likelihood; sd 0.2 fits tiebreaks better but straight sets worse, and the two
-  are within 0.001 on that score.
+  predicted (0.588 vs 0.605 observed on test). The chain over-counts tiebreaks, so one factor
+  (0.927), fitted on validation, calibrates the count: test 0.484 predicted vs 0.481 observed,
+  forward 0.497 vs 0.507. The form width (sd 0.15) was chosen on validation by straight-sets log
+  loss plus the tiebreak count's likelihood.
 
 ## Model vs markets (Aug 2025 – Oct 2026, our matches with a linked market)
 
@@ -112,8 +115,15 @@ Tour main draw. The served model is the walk-forward context layer.
   lost on test and forward. Before, it needed a 1e-4 lower inner log loss; now it needs a gain
   above two paired standard errors. The rule stands on its own: the best of 18 settings wins a
   small margin by chance.
-- **Checked and left out:** computing rest and load from week-start dates for API rows too (TML
-  only has week dates). No measurable effect (+0.0001 ± 0.0004 on forward).
+- **Checked and left out:**
+  - Rest and load from week-start dates for API rows too (TML only has week dates): no
+    measurable effect (+0.0001 ± 0.0004 on forward).
+  - Residual form (recent results minus the blend's expectation): no gain on validation; streaks
+    regress.
+  - Monthly instead of yearly refits of the layer: +0.0005 ± 0.0003 on 2016–18, nothing on test,
+    and not worth a monthly serving cadence.
+  - Down-weighting retirements in Elo (half or zero weight): worse on validation at every step;
+    a retirement still says something about the players.
 
 ## What needs you
 
