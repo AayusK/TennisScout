@@ -1,0 +1,132 @@
+tourney_name,year_from,year_to,city,country,latitude,longitude,elevation_m,notes
+'s-Hertogenbosch,1990,2099,'s-Hertogenbosch (Rosmalen),NED,51.70,5.35,5,
+ATP Cup,2020,2022,,AUS,,,,multi-city team event; venue depends on the tie
+Atp Cup,2020,2022,,AUS,,,,multi-city team event; venue depends on the tie
+United Cup,2023,2099,,AUS,,,,multi-city team event (Perth/Sydney); venue depends on the tie
+ATP Finals,2009,2020,London,GBR,51.50,0.00,10,indoor
+ATP Finals,2021,2099,Turin,ITA,45.04,7.65,240,indoor
+ATP Tour Finals,2009,2020,London,GBR,51.50,0.00,10,indoor
+ATP Tour Finals,2021,2099,Turin,ITA,45.04,7.65,240,indoor
+Tour Finals,2009,2020,London,GBR,51.50,0.00,10,indoor
+Tour Finals,2021,2099,Turin,ITA,45.04,7.65,240,indoor
+Acapulco,1993,2099,Acapulco,MEX,16.86,-99.88,10,
+Adelaide,1990,2099,Adelaide,AUS,-34.92,138.60,50,
+Adelaide-1,2021,2023,Adelaide,AUS,-34.92,138.60,50,
+Adelaide-2,2021,2023,Adelaide,AUS,-34.92,138.60,50,
+Almaty,2024,2099,Almaty,KAZ,43.24,76.95,800,altitude
+Antalya,2017,2021,Antalya,TUR,36.86,31.06,20,Belek area
+Antwerp,2016,2099,Antwerp,BEL,51.22,4.40,10,indoor
+Astana,2020,2023,Astana,KAZ,51.17,71.43,350,indoor
+Nur-Sultan,2020,2021,Astana,KAZ,51.17,71.43,350,indoor; city renamed
+Athens,2024,2099,Athens,GRE,37.98,23.73,100,indoor
+Atlanta,2010,2099,Atlanta,USA,33.75,-84.39,320,
+Auckland,1990,2099,Auckland,NZL,-36.85,174.76,30,
+Australian Open,1988,2099,Melbourne,AUS,-37.82,144.98,30,retractable roofs on main courts
+Banja Luka,2023,2099,Banja Luka,BIH,44.77,17.19,165,
+Barcelona,1990,2099,Barcelona,ESP,41.39,2.12,100,
+Basel,1990,2099,Basel,SUI,47.56,7.59,260,indoor
+Bastad,1990,2099,Bastad,SWE,56.43,12.85,10,
+Beijing,2009,2099,Beijing,CHN,39.99,116.39,45,retractable roof on main court
+Belgrade,2021,2099,Belgrade,SRB,44.79,20.45,115,
+Serbia,2021,2021,Belgrade,SRB,44.79,20.45,115,
+Brisbane,2009,2099,Brisbane,AUS,-27.47,153.03,30,
+Brussels,2025,2099,Brussels,BEL,50.85,4.35,30,indoor
+Bucharest,2024,2099,Bucharest,ROU,44.43,26.10,75,
+Budapest,2017,2019,Budapest,HUN,47.50,19.04,105,
+Buenos Aires,1990,2099,Buenos Aires,ARG,-34.60,-58.38,25,
+Cagliari,2021,2021,Cagliari,ITA,39.22,9.12,10,
+Sardinia,2020,2020,Santa Margherita di Pula,ITA,38.98,8.95,10,
+Canada Masters,2019,2019,Montreal,CAN,45.53,-73.62,40,alternates Toronto/Montreal
+Canada Masters,2021,2021,Toronto,CAN,43.77,-79.51,175,alternates Toronto/Montreal
+Canada Masters,2022,2022,Montreal,CAN,45.53,-73.62,40,alternates Toronto/Montreal
+Canada Masters,2023,2023,Toronto,CAN,43.77,-79.51,175,alternates Toronto/Montreal
+Canada Masters,2024,2024,Montreal,CAN,45.53,-73.62,40,alternates Toronto/Montreal
+Canada Masters,2025,2025,Toronto,CAN,43.77,-79.51,175,alternates Toronto/Montreal
+Chengdu,2016,2099,Chengdu,CHN,30.57,104.07,500,
+Cincinnati Masters,1990,2099,Mason (Cincinnati),USA,39.35,-84.31,240,
+Cologne 1,2020,2020,Cologne,GER,50.94,6.96,50,indoor
+Cologne 2,2020,2020,Cologne,GER,50.94,6.96,50,indoor
+Cordoba,2019,2099,Cordoba,ARG,-31.42,-64.18,400,
+Dallas,2023,2099,Dallas,USA,32.78,-96.80,140,indoor
+New York,2018,2022,Uniondale (Long Island),USA,40.72,-73.59,30,indoor; licence later moved to Dallas
+New York Open,2018,2022,Uniondale (Long Island),USA,40.72,-73.59,30,indoor
+Delray Beach,1999,2099,Delray Beach,USA,26.46,-80.07,5,
+Doha,1993,2099,Doha,QAT,25.29,51.53,10,
+Dubai,1993,2099,Dubai,UAE,25.23,55.33,10,
+Eastbourne,2009,2099,Eastbourne,GBR,50.77,0.28,10,
+Estoril,2015,2099,Estoril,POR,38.71,-9.40,50,
+Florence,2022,2022,Florence,ITA,43.77,11.26,50,indoor
+Geneva,2015,2099,Geneva,SUI,46.20,6.15,375,
+Gijon,2022,2022,Gijon,ESP,43.54,-5.66,20,indoor
+Great Ocean Road Open,2021,2021,Melbourne,AUS,-37.82,144.98,30,
+Murray River Open,2021,2021,Melbourne,AUS,-37.82,144.98,30,
+Melbourne,2021,2022,Melbourne,AUS,-37.82,144.98,30,
+Gstaad,1990,2099,Gstaad,SUI,46.47,7.29,1050,altitude
+Halle,1993,2099,Halle (Westfalen),GER,52.06,8.36,100,retractable roof on main court
+Hamburg,1990,2099,Hamburg,GER,53.57,9.99,10,
+Hangzhou,2023,2099,Hangzhou,CHN,30.27,120.15,10,
+Hong Kong,2024,2099,Hong Kong,HKG,22.28,114.18,10,
+Houston,1990,2099,Houston,USA,29.76,-95.37,15,
+Indian Wells Masters,2000,2099,Indian Wells,USA,33.72,-116.31,40,desert climate
+Kitzbuhel,1990,2099,Kitzbuhel,AUT,47.45,12.39,760,altitude
+Laver Cup,2019,2019,Geneva,SUI,46.20,6.15,375,indoor arena
+Laver Cup,2021,2021,Boston,USA,42.36,-71.06,10,indoor arena
+Laver Cup,2022,2022,London,GBR,51.50,0.00,10,indoor arena
+Laver Cup,2023,2023,Vancouver,CAN,49.28,-123.11,10,indoor arena
+Laver Cup,2024,2024,Berlin,GER,52.52,13.40,35,indoor arena
+Laver Cup,2025,2025,San Francisco,USA,37.77,-122.39,10,indoor arena
+Los Cabos,2016,2099,Los Cabos,MEX,22.89,-109.91,20,
+Lyon,2017,2099,Lyon,FRA,45.76,4.84,170,
+Madrid Masters,2009,2099,Madrid,ESP,40.37,-3.68,650,altitude; retractable roofs
+Mallorca,2016,2099,Santa Ponsa (Mallorca),ESP,39.51,2.48,20,
+Marbella,2021,2021,Marbella,ESP,36.51,-4.88,20,
+Marrakech,2016,2099,Marrakech,MAR,31.63,-7.99,470,
+Marseille,1993,2099,Marseille,FRA,43.30,5.37,10,indoor
+Metz,2003,2099,Metz,FRA,49.12,6.18,180,indoor
+Miami Masters,2019,2099,Miami Gardens,USA,25.96,-80.24,5,
+Monte Carlo Masters,1990,2099,Roquebrune-Cap-Martin,FRA,43.75,7.44,30,
+Montpellier,2010,2099,Montpellier,FRA,43.61,3.88,30,indoor
+Moscow,1990,2021,Moscow,RUS,55.76,37.62,150,indoor
+Munich,1990,2099,Munich,GER,48.14,11.58,520,
+Naples,2022,2022,Naples,ITA,40.85,14.27,10,
+Newport,1990,2099,Newport,USA,41.49,-71.31,10,
+Next Gen ATP Finals,2017,2022,Milan,ITA,45.46,9.19,120,indoor
+Next Gen ATP Finals,2023,2099,Jeddah,KSA,21.54,39.17,10,indoor
+Next Gen Finals,2017,2022,Milan,ITA,45.46,9.19,120,indoor
+Next Gen Finals,2023,2099,Jeddah,KSA,21.54,39.17,10,indoor
+NextGen Finals,2017,2022,Milan,ITA,45.46,9.19,120,indoor
+NextGen Finals,2023,2099,Jeddah,KSA,21.54,39.17,10,indoor
+Paris Masters,1990,2024,Paris (Bercy),FRA,48.84,2.38,35,indoor
+Paris Masters,2025,2099,Nanterre (La Defense Arena),FRA,48.90,2.23,35,indoor
+Paris Olympics,2024,2024,Paris (Roland Garros),FRA,48.85,2.25,35,
+Parma,2021,2021,Parma,ITA,44.80,10.33,55,
+Pune,2018,2022,Pune,IND,18.52,73.86,560,
+Queen's Club,1990,2099,London (Queen's Club),GBR,51.49,-0.21,10,
+Rio De Janeiro,2014,2099,Rio de Janeiro,BRA,-22.97,-43.18,10,
+Rio de Janeiro,2014,2099,Rio de Janeiro,BRA,-22.97,-43.18,10,
+Roland Garros,1990,2099,Paris (Roland Garros),FRA,48.85,2.25,35,retractable roofs on main courts from 2020/2024
+Rome Masters,1990,2099,Rome,ITA,41.93,12.46,20,
+Rotterdam,1990,2099,Rotterdam,NED,51.92,4.48,0,indoor
+San Diego,2021,2022,San Diego,USA,32.72,-117.16,20,
+Santiago,2019,2099,Santiago,CHI,-33.45,-70.67,570,
+Sao Paulo,2012,2019,Sao Paulo,BRA,-23.55,-46.63,760,
+Seoul,2022,2022,Seoul,KOR,37.57,126.98,40,
+Shanghai Masters,2009,2099,Shanghai,CHN,31.04,121.36,5,retractable roof on main court
+Shanghai,2009,2099,Shanghai,CHN,31.04,121.36,5,retractable roof on main court
+Singapore,2021,2021,Singapore,SGP,1.30,103.87,15,indoor
+Sofia,2016,2022,Sofia,BUL,42.70,23.32,550,indoor
+St. Petersburg,1995,2021,St. Petersburg,RUS,59.93,30.34,5,indoor
+Stockholm,1990,2099,Stockholm,SWE,59.33,18.07,20,indoor
+Stuttgart,2015,2099,Stuttgart,GER,48.78,9.18,250,
+Sydney,2009,2022,Sydney,AUS,-33.85,151.07,20,
+Tel Aviv,2022,2022,Tel Aviv,ISR,32.09,34.78,20,indoor
+Tokyo,1990,2099,Tokyo,JPN,35.63,139.79,5,
+Tokyo Olympics,2021,2021,Tokyo,JPN,35.63,139.79,5,
+US Open,1978,2099,New York (Flushing Meadows),USA,40.75,-73.85,10,retractable roofs on main courts
+Umag,1990,2099,Umag,CRO,45.43,13.52,20,
+Vienna,1990,2099,Vienna,AUT,48.21,16.37,180,indoor
+Washington,1990,2099,Washington,USA,38.96,-77.04,80,
+Wimbledon,1990,2099,London (Wimbledon),GBR,51.43,-0.21,20,retractable roofs on Centre and No.1 Court
+Winston-Salem,2011,2099,Winston-Salem,USA,36.10,-80.24,280,
+Winston Salem,2011,2099,Winston-Salem,USA,36.10,-80.24,280,
+Zhuhai,2019,2023,Zhuhai,CHN,22.27,113.58,10,
