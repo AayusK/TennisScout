@@ -55,6 +55,13 @@ def _surface(raw: str | None) -> tuple[str | None, str | None]:
 TML_NAMES = {"London": "Queen's Club", "French Open": "Roland Garros", "Montreal": "Canada Masters", "Toronto": "Canada Masters", "Hertogenbosch": "'s-Hertogenbosch"}
 
 
+def tml_history(conn: sqlite3.Connection) -> dict[str, list[sqlite3.Row]]:
+    hist: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    for r in conn.execute("SELECT name, level, indoor, year, surface FROM tournament_edition WHERE snapshot_id != 'api_tennis'"):
+        hist[norm_name(r["name"])].append(r)
+    return hist
+
+
 def tml_event(hist: dict, name: str, year: int) -> tuple[str | None, str | None, str | None]:
     """(majority surface, latest level, latest indoor) of the same event's TML editions in the three prior seasons.
 
@@ -167,9 +174,7 @@ def ingest(conn: sqlite3.Connection, registry_dir: Path | None = None, log=print
     ereg, mreg = registry.editions(registry_dir), registry.matches(registry_dir)
     pmap, how, new_players = map_players(conn, api_players, preg)
 
-    tml_hist: dict[str, list[sqlite3.Row]] = defaultdict(list)
-    for r in conn.execute("SELECT name, level, indoor, year, surface FROM tournament_edition WHERE snapshot_id != 'api_tennis'"):
-        tml_hist[norm_name(r["name"])].append(r)
+    tml_hist = tml_history(conn)
     vindex = venues.VenueIndex(venues.load())
 
     editions: dict[tuple, list[dict]] = defaultdict(list)

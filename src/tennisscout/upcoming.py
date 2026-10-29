@@ -2,7 +2,7 @@
 
 Players are matched to internal IDs through the API-Tennis mappings made at ingest; a player who
 has never been ingested is listed without a prediction rather than guessed. Surface and indoor come
-from the tournament list (cached at fetch time), else the last edition of the same name.
+from the event's recent TML editions (as at ingest), else the API-Tennis tournament list.
 """
 
 from __future__ import annotations
@@ -11,20 +11,20 @@ import sqlite3
 from datetime import date, timedelta
 
 from . import api_tennis, predict
-from .ingest_api_tennis import ROUNDS, SLAMS, _clean_name, _surface
+from .ingest_api_tennis import ROUNDS, SLAMS, _clean_name, _surface, tml_event, tml_history
 
 
 def rows(conn: sqlite3.Connection, fixtures: list[dict], tournaments: dict) -> list[dict]:
     ext = {r[0]: r[1] for r in conn.execute("SELECT external_id, player_id FROM player_external_id WHERE source = 'api_tennis'")}
+    hist = tml_history(conn)
     out = []
     for f in sorted(fixtures, key=lambda f: (f["event_date"], f.get("event_time") or "")):
         if f.get("event_winner") or f.get("event_status") or f.get("event_qualification") == "True":
             continue  # finished, live, cancelled or qualifying
         name = _clean_name(f["tournament_name"])
         surface, indoor = _surface(tournaments.get(f["tournament_key"], {}).get("tournament_sourface"))
-        last = conn.execute("SELECT surface, indoor FROM tournament_edition WHERE name = ? ORDER BY year DESC LIMIT 1", (name,)).fetchone()
-        surface = surface or (last["surface"] if last else None)
-        indoor = indoor or (last["indoor"] if last else None)
+        t_surface, _, t_indoor = tml_event(hist, name, int(f["event_date"][:4]))  # same rule as the ingest
+        surface, indoor = t_surface or surface, indoor or t_indoor
         best_of = 5 if any(s in name.lower() for s in SLAMS) else 3
         row = {"event_key": f["event_key"], "start": f"{f['event_date']}T{f.get('event_time') or '00:00'}:00Z",
                "tournament": name, "round": ROUNDS.get(label := (f.get("tournament_round") or "").split(" - ")[-1].strip().lower(), label),
