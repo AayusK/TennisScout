@@ -43,6 +43,10 @@ tennisscout predict "Jannik Sinner" "Carlos Alcaraz" --surface Clay --best-of 5
 ```
 
 ```bash
+ANTHROPIC_API_KEY=... tennisscout predict "Jannik Sinner" "Carlos Alcaraz" --surface Clay --report   # Claude writes the scouting report from the prediction (pip install -e '.[llm]'; ANTHROPIC_KEY also works)
+```
+
+```bash
 API_TENNIS_KEY=... tennisscout upcoming --days 2   # scheduled ATP matches: served prediction + live Kalshi price
 ```
 
