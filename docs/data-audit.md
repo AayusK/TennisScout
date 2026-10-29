@@ -2,7 +2,7 @@
 
 # Data audit (first milestone)
 
-Run at 2026-10-29T06:08:28Z. Source snapshots:
+Run at 2026-10-29T08:50:57Z. Source snapshots:
 
 - `tml@9aecc242e98b`: tml revision 9aecc242e98b (2026-10-27T00:54:00+01:00), collected 2026-10-29T02:26:42Z
 - `mcp@1813a1309b7e`: mcp revision 1813a1309b7e (2026-09-18T10:35:54+02:00), collected 2026-10-29T02:32:05Z
@@ -110,7 +110,7 @@ Archived forecast check (Open-Meteo historical-forecast API, needed for leak-fre
 
 Player-name resolution: resolved 15,041, resolved_via_match_fuzzy 50, unresolved 30, resolved_via_match 6, ambiguous 1.
 
-Of 7,156 linked charts, 357 disagree with TML about the surface (267 are MCP 'Hard' vs TML 'Carpet'), and 3,957 carry a start time.
+Of 7,156 linked charts, 287 disagree with TML about the surface (267 are MCP 'Hard' vs TML 'Carpet'), and 3,957 carry a start time.
 
 Name variants resolved only because the match-level join was unique (candidates for `metadata/player_aliases.csv` after review):
 
