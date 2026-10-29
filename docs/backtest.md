@@ -60,17 +60,17 @@ Log loss of the served blend; lower is better.
 
 ## Scorelines: straight sets and tiebreaks
 
-The Markov chain also predicts how a match is won. Checked against actual scores (completed matches):
+The Markov chain also predicts how a match is won. Its point probabilities are anchored so that its match-win chance equals the served model's (the serve/return ratings set how serve-dominated the matchup is). Checked against actual scores (completed matches):
 
-| Window | n | Straight sets, predicted | observed | Tiebreaks per match, predicted | observed |
-|---|---:|---:|---:|---:|---:|
-| validation | 14,180 | 0.590 | 0.605 | 0.526 | 0.488 |
-| test | 18,438 | 0.588 | 0.605 | 0.523 | 0.481 |
-| forward | 2,454 | 0.590 | 0.601 | 0.536 | 0.507 |
-| serve_return_only_test | 18,438 | 0.604 | 0.605 | 0.505 | 0.481 |
-| independent_points_test | 18,438 | 0.553 | 0.605 | 0.560 | 0.481 |
+| Window | n | Straight sets, predicted | observed | log loss | Tiebreaks per match, predicted | observed |
+|---|---:|---:|---:|---:|---:|---:|
+| validation | 14,180 | 0.590 | 0.605 | 0.6593 | 0.526 | 0.488 |
+| test | 18,438 | 0.588 | 0.605 | 0.6526 | 0.523 | 0.481 |
+| forward | 2,454 | 0.590 | 0.601 | 0.6563 | 0.536 | 0.507 |
+| serve_return_only_test | 18,438 | 0.604 | 0.605 | 0.6569 | 0.505 | 0.481 |
+| independent_points_test | 18,438 | 0.553 | 0.605 | 0.6705 | 0.560 | 0.481 |
 
-Match-level form on the day (sd 0.15 on the logit scale, chosen on validation straight-sets log loss) is what brings these into line: with independent points the chain predicts too few straight sets and too many tiebreaks.
+Match-level form on the day (sd 0.15 on the logit scale, chosen on validation straight-sets log loss plus the tiebreak count's Poisson likelihood) is what brings these into line: with independent points the chain predicts too few straight sets and too many tiebreaks. `serve_return_only_test` is the same chain without the anchor.
 
 ## Context features on top of the served model
 

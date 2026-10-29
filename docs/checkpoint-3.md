@@ -59,8 +59,12 @@ Tour main draw. The served model is the walk-forward context layer.
 - **Checkpoint 2's served blend scored 0.6142 on test** (on a slightly different match set), so
   the served model has improved by about 0.0145 since then. Part of that is the Challenger data and MOV changes to Elo; part is the
   layer.
-- **Scorelines** (straight sets and tiebreaks, anchored): see the backtest report's scoreline
-  section. Anchoring improves straight-sets log loss over the serve/return-only chain.
+- **Scorelines.** Anchoring the chain to the served probability improves straight-sets log loss
+  on test from 0.6569 to 0.6526 (forward: 0.6617 to 0.6563). Straight sets are now slightly under
+  predicted (0.588 vs 0.605 observed on test), and tiebreaks are over predicted (0.52 per match vs
+  0.48). The form width (sd 0.15) was chosen on validation by straight-sets log loss plus the
+  tiebreak count's likelihood; sd 0.2 fits tiebreaks better but straight sets worse, and the two
+  are within 0.001 on that score.
 
 ## Model vs markets (Aug 2025 – Oct 2026, our matches with a linked market)
 
@@ -72,16 +76,17 @@ Tour main draw. The served model is the walk-forward context layer.
 | Polymarket, last price | 2,764 | 0.5985 | 0.6079 | 0.0094 |
 
 - **The markets are a little sharper than the model**, more so close to the start, when late
-  news is priced in.
+  news is priced in. Only Polymarket near the start is clearly better (0.008–0.009 ± 0.004 log
+  loss). Kalshi's lead (0.004–0.007 ± 0.004–0.005) is within noise.
 - **The model still carries independent information.** In a market + model combination fitted
   on the earlier half, the model keeps a weight of 0.3–0.6. On Kalshi the combination beats the
-  market alone on the later half at t−1h and at the last price (by about 0.002), but not at t−24h. On
-  Polymarket it never does.
+  market alone on the later half at t−1h and at the last price (0.0026 ± 0.0019 and 0.0017 ±
+  0.0016), but not at t−24h. On Polymarket it never does.
 - **The combination is not served.** The gain is small and not established. Standard errors are
   in [markets.md](markets.md).
-- **Trading check** (Kalshi ask + fee, 1 h before): +$17 over 1,169 one-contract bets at a 2-point
-  edge, about +1.5% per bet. That's within noise, and historical depth isn't stored, so it is not
-  evidence of an exploitable edge.
+- **Trading check** (Kalshi ask + fee, 1 h before): +$17 ± $16 over 1,169 one-contract bets at a
+  2-point edge, about +1.5% per bet. That's within noise, and historical depth isn't stored, so it
+  is not evidence of an exploitable edge.
 
 ## Data problems found and fixed this round
 
