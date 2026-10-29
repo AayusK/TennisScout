@@ -14,9 +14,9 @@ Excluded from both rating updates and scoring: walkovers, defaults, unknown resu
 | Ranking logistic (β=0.649, fitted on validation) | 18,937 | 63.9% | 0.2202 | 0.6298 | 0.0252 |
 | Elo, overall only | 18,937 | 64.1% | 0.2234 | 0.6413 | 0.0617 |
 | Elo, 50/50 surface blend (FiveThirtyEight-style) | 18,937 | 64.1% | 0.2214 | 0.6343 | 0.0540 |
-| Elo, selected on validation | 18,937 | 65.7% | 0.2122 | 0.6110 | 0.0096 |
+| Elo, selected on validation | 18,937 | 65.5% | 0.2127 | 0.6120 | 0.0107 |
 | Serve/return ratings + Markov chain | 18,937 | 65.3% | 0.2194 | 0.6358 | 0.0633 |
-| **Elo + serve/return blend (fitted on validation)** | 18,937 | 66.3% | 0.2101 | 0.6061 | 0.0041 |
+| **Elo + serve/return blend (fitted on validation)** | 18,937 | 66.3% | 0.2098 | 0.6054 | 0.0050 |
 
 ## Forward holdout (2026-01-22 on, tour main draw, never used for any choice)
 
@@ -24,35 +24,37 @@ Excluded from both rating updates and scoring: walkovers, defaults, unknown resu
 |---|---:|---:|---:|---:|---:|
 | Coin flip | 2,509 | 50.0% | 0.2500 | 0.6931 | 0.0022 |
 | Elo, overall only | 2,509 | 65.5% | 0.2224 | 0.6386 | 0.0575 |
-| Elo, 50/50 surface blend | 2,509 | 64.6% | 0.2206 | 0.6328 | 0.0457 |
-| Elo, selected | 2,509 | 66.2% | 0.2108 | 0.6075 | 0.0193 |
-| Serve/return + Markov | 2,509 | 64.4% | 0.2232 | 0.6408 | 0.0541 |
-| **Elo + serve/return blend (served)** | 2,509 | 66.9% | 0.2106 | 0.6076 | 0.0229 |
+| Elo, 50/50 surface blend | 2,509 | 64.6% | 0.2201 | 0.6313 | 0.0440 |
+| Elo, selected | 2,509 | 65.7% | 0.2105 | 0.6067 | 0.0192 |
+| Serve/return + Markov | 2,509 | 64.5% | 0.2215 | 0.6370 | 0.0488 |
+| **Elo + serve/return blend (served)** | 2,509 | 66.6% | 0.2098 | 0.6058 | 0.0192 |
 
-Rankings are not in the API-Tennis feed, so there is no ranking baseline here. Blend vs Elo on these matches: Brier gain 0.0002 ± 0.0009, log-loss gain -0.0001 ± 0.0020.
+Rankings are not in the API-Tennis feed, so there is no ranking baseline here. Blend vs Elo on these matches: Brier gain 0.0007 ± 0.0009, log-loss gain 0.0009 ± 0.0020.
 
 | Predicted | n | Mean prediction | Observed |
 |---|---:|---:|---:|
-| 0.0–0.1 | 31 | 0.065 | 0.065 |
-| 0.1–0.2 | 95 | 0.158 | 0.137 |
-| 0.2–0.3 | 208 | 0.257 | 0.255 |
-| 0.3–0.4 | 393 | 0.354 | 0.346 |
-| 0.4–0.5 | 519 | 0.451 | 0.405 |
-| 0.5–0.6 | 507 | 0.548 | 0.558 |
-| 0.6–0.7 | 385 | 0.647 | 0.652 |
-| 0.7–0.8 | 247 | 0.743 | 0.814 |
-| 0.8–0.9 | 92 | 0.845 | 0.870 |
-| 0.9–1.0 | 32 | 0.934 | 0.969 |
+| 0.0–0.1 | 32 | 0.064 | 0.062 |
+| 0.1–0.2 | 103 | 0.157 | 0.126 |
+| 0.2–0.3 | 204 | 0.258 | 0.260 |
+| 0.3–0.4 | 382 | 0.355 | 0.330 |
+| 0.4–0.5 | 510 | 0.450 | 0.424 |
+| 0.5–0.6 | 523 | 0.548 | 0.551 |
+| 0.6–0.7 | 379 | 0.648 | 0.654 |
+| 0.7–0.8 | 237 | 0.744 | 0.793 |
+| 0.8–0.9 | 105 | 0.841 | 0.886 |
+| 0.9–1.0 | 34 | 0.932 | 0.971 |
 
 ## Data decision: Challenger and qualifying results
 
-API-Tennis adds Challenger and qualifying matches from 2019. They update ratings but are never scored. Whether to use them was decided on 2021–22 tour matches (where that data exists); 2023 on and the forward window were not used for the choice. Chosen: **with_challenger_k1.0**.
+API-Tennis adds Challenger and qualifying matches from 2019. They update ratings but are never scored. Whether to use them was decided on 2021–22 tour matches (where that data exists); 2023 on and the forward window were not used for the choice. Chosen: **with_challenger_k1.5**.
 
 | Data | 2021–22 (decision) | 2023 – Jan 2026 | Forward |
 |---|---:|---:|---:|
-| tour_only | 0.6059 | 0.6205 | 0.6189 |
-| with_challenger_k1.0 | 0.5995 | 0.6085 | 0.6076 |
-| with_challenger_k0.5 | 0.6012 | 0.6107 | 0.6095 |
+| tour_only | 0.6059 | 0.6205 | 0.6175 |
+| with_challenger_k2.0 | 0.5998 | 0.6078 | 0.6063 |
+| with_challenger_k1.5 | 0.5989 | 0.6075 | 0.6058 |
+| with_challenger_k1.0 | 0.5990 | 0.6080 | 0.6061 |
+| with_challenger_k0.5 | 0.6007 | 0.6102 | 0.6079 |
 
 Log loss of the served blend; lower is better.
 
@@ -64,28 +66,38 @@ The Markov chain also predicts how a match is won. Checked against actual scores
 |---|---:|---:|---:|---:|---:|
 | validation | 14,180 | 0.628 | 0.605 | 0.485 | 0.488 |
 | test | 18,438 | 0.633 | 0.605 | 0.473 | 0.481 |
-| forward | 2,454 | 0.625 | 0.601 | 0.499 | 0.507 |
+| forward | 2,454 | 0.626 | 0.601 | 0.496 | 0.507 |
 | independent_points_test | 18,438 | 0.553 | 0.605 | 0.560 | 0.481 |
 
-Match-level form on the day (sd 0.1 on the logit scale) is what brings these into line: with independent points the chain predicts too few straight sets and too many tiebreaks.
+Match-level form on the day (sd 0.2 on the logit scale, chosen on validation straight-sets log loss) is what brings these into line: with independent points the chain predicts too few straight sets and too many tiebreaks.
 
 ## Context features on top of the served model
 
-Greedy selection on validation of a logistic layer over the served probability with age gap, left-hander matchup, shrunk head-to-head, rest days, 14-day match load and home country. Selected: `age`, `exp`, `rest`, `h2h`, `load`.
+Greedy selection on validation of a logistic layer over the served probability. Candidates (see `features.py`): player differences `age`, `lefty`, `h2h`, `rest`, `load`, `home`, `exp`, `switch`, `travel`; and context terms that rescale the served logit, `conf`, `bo5`, `indoor`, `clay`, `grass`, `slam`, `masters`, `late`. Selected: `age`, `exp`, `rest`, `conf`, `indoor`, `bo5`, `h2h`, `load`.
 
 | Window | n | Served log loss | With features | Gain ± se |
 |---|---:|---:|---:|---:|
-| test | 18,937 | 0.6061 | 0.6001 | 0.0060 ± 0.0007 |
-| test_2023_on | 9,165 | 0.6085 | 0.6030 | 0.0055 ± 0.0011 |
-| forward | 2,509 | 0.6076 | 0.6016 | 0.0060 ± 0.0022 |
+| test | 18,937 | 0.6054 | 0.5995 | 0.0059 ± 0.0008 |
+| test_2023_on | 9,165 | 0.6075 | 0.6021 | 0.0054 ± 0.0011 |
+| forward | 2,509 | 0.6058 | 0.6004 | 0.0054 ± 0.0023 |
+
+## Walk-forward refit of the context layer
+
+The layer's weights refit each January on the previous years only, against weights fixed on 2014–15. Decided on 2016–18: fixed 0.5914, yearly refit 1-year window 0.5915, 2-year window 0.5910, 3-year window 0.5911. Adopted (2-year window).
+
+| Window | n | Weights fixed on validation | Yearly refit | Gain ± se |
+|---|---:|---:|---:|---:|
+| test | 18,937 | 0.5995 | 0.5997 | -0.0002 ± 0.0004 |
+| test_2023_on | 9,165 | 0.6021 | 0.6018 | 0.0003 ± 0.0007 |
+| forward | 2,509 | 0.6004 | 0.5974 | 0.0030 ± 0.0009 |
 
 Lower is better for Brier, log loss and ECE (expected calibration error, 10 bins). Market comparison: see `docs/markets.md`.
 
-Selected Elo, completed matches only (retirements removed): Brier 0.2109, log loss 0.6077, n = 18,438.
+Selected Elo, completed matches only (retirements removed): Brier 0.2114, log loss 0.6088, n = 18,438.
 
 Serving model, chosen by validation log loss among the last three rows: **walk_forward**. Blend: logit p = 0.588 × logit p_Elo + 0.273 × logit p_Markov (coefficients fitted on validation; the blend's validation score is therefore slightly optimistic).
 
-Blend vs selected Elo on the same test matches (positive = blend better): brier gain 0.0021 ± 0.0003 (z = 6.8); log_loss gain 0.0049 ± 0.0007 (z = 6.7).
+Blend vs selected Elo on the same test matches (positive = blend better): brier gain 0.0028 ± 0.0003 (z = 8.4); log_loss gain 0.0066 ± 0.0008 (z = 8.3).
 
 ## Serve/return model
 
@@ -141,24 +153,24 @@ Calibration of the serving model (walk_forward), test window:
 
 | Predicted | n | Mean prediction | Observed win rate |
 |---|---:|---:|---:|
-| 0.0–0.1 | 382 | 0.065 | 0.052 |
-| 0.1–0.2 | 1,015 | 0.158 | 0.156 |
-| 0.2–0.3 | 1,994 | 0.254 | 0.236 |
-| 0.3–0.4 | 2,735 | 0.353 | 0.355 |
-| 0.4–0.5 | 3,324 | 0.451 | 0.458 |
-| 0.5–0.6 | 3,277 | 0.549 | 0.551 |
-| 0.6–0.7 | 2,824 | 0.648 | 0.642 |
-| 0.7–0.8 | 1,921 | 0.745 | 0.745 |
-| 0.8–0.9 | 1,088 | 0.844 | 0.856 |
-| 0.9–1.0 | 377 | 0.936 | 0.931 |
+| 0.0–0.1 | 407 | 0.061 | 0.049 |
+| 0.1–0.2 | 1,054 | 0.158 | 0.164 |
+| 0.2–0.3 | 1,940 | 0.253 | 0.242 |
+| 0.3–0.4 | 2,779 | 0.352 | 0.353 |
+| 0.4–0.5 | 3,306 | 0.451 | 0.461 |
+| 0.5–0.6 | 3,232 | 0.549 | 0.545 |
+| 0.6–0.7 | 2,829 | 0.649 | 0.648 |
+| 0.7–0.8 | 1,895 | 0.746 | 0.745 |
+| 0.8–0.9 | 1,077 | 0.843 | 0.850 |
+| 0.9–1.0 | 418 | 0.938 | 0.928 |
 
 By confidence grade (serving model, test window):
 
 | Model | n | Accuracy | Brier | Log loss | ECE |
 |---|---:|---:|---:|---:|---:|
-| high | 14,454 | 66.2% | 0.2091 | 0.6037 | 0.0078 |
-| low | 983 | 71.7% | 0.1882 | 0.5574 | 0.0270 |
-| medium | 3,500 | 67.5% | 0.2062 | 0.5963 | 0.0117 |
+| high | 14,614 | 66.3% | 0.2090 | 0.6034 | 0.0055 |
+| low | 983 | 71.8% | 0.1872 | 0.5563 | 0.0381 |
+| medium | 3,340 | 67.0% | 0.2062 | 0.5961 | 0.0145 |
 
 ## How the Elo model was chosen
 
@@ -264,65 +276,65 @@ Selected configuration: `surface_weight=0.5`, `split_indoor_hard=False`, `new_pl
 
 | Predicted | n | Mean prediction | Observed win rate |
 |---|---:|---:|---:|
-| 0.0–0.1 | 387 | 0.066 | 0.067 |
-| 0.1–0.2 | 1,001 | 0.157 | 0.171 |
-| 0.2–0.3 | 1,979 | 0.255 | 0.263 |
-| 0.3–0.4 | 2,701 | 0.353 | 0.364 |
-| 0.4–0.5 | 3,376 | 0.450 | 0.456 |
-| 0.5–0.6 | 3,355 | 0.549 | 0.543 |
-| 0.6–0.7 | 2,780 | 0.648 | 0.629 |
-| 0.7–0.8 | 1,904 | 0.746 | 0.748 |
-| 0.8–0.9 | 1,055 | 0.844 | 0.820 |
-| 0.9–1.0 | 399 | 0.937 | 0.930 |
+| 0.0–0.1 | 379 | 0.065 | 0.074 |
+| 0.1–0.2 | 1,022 | 0.157 | 0.165 |
+| 0.2–0.3 | 1,957 | 0.255 | 0.261 |
+| 0.3–0.4 | 2,733 | 0.353 | 0.377 |
+| 0.4–0.5 | 3,340 | 0.451 | 0.453 |
+| 0.5–0.6 | 3,378 | 0.548 | 0.543 |
+| 0.6–0.7 | 2,787 | 0.648 | 0.631 |
+| 0.7–0.8 | 1,920 | 0.746 | 0.740 |
+| 0.8–0.9 | 1,021 | 0.844 | 0.817 |
+| 0.9–1.0 | 400 | 0.936 | 0.940 |
 
 ## By confidence grade (selected Elo, test window)
 
 | Model | n | Accuracy | Brier | Log loss | ECE |
 |---|---:|---:|---:|---:|---:|
-| high | 14,454 | 65.2% | 0.2132 | 0.6128 | 0.0095 |
-| low | 983 | 69.3% | 0.1968 | 0.5820 | 0.0250 |
-| medium | 3,500 | 66.4% | 0.2127 | 0.6115 | 0.0314 |
+| high | 14,614 | 65.1% | 0.2135 | 0.6136 | 0.0091 |
+| low | 983 | 69.3% | 0.1978 | 0.5848 | 0.0369 |
+| medium | 3,340 | 66.0% | 0.2133 | 0.6129 | 0.0311 |
 
 ## By tournament level (selected Elo, test window)
 
 | Model | n | Accuracy | Brier | Log loss | ECE |
 |---|---:|---:|---:|---:|---:|
-| 250 | 6,811 | 62.0% | 0.2286 | 0.6492 | 0.0166 |
-| 500 | 2,674 | 67.0% | 0.2066 | 0.5997 | 0.0247 |
-| A | 484 | 65.9% | 0.2058 | 0.5946 | 0.0574 |
-| D | 1,353 | 67.2% | 0.2018 | 0.5857 | 0.0206 |
-| F | 105 | 62.9% | 0.2164 | 0.6186 | 0.0757 |
-| G | 3,491 | 72.1% | 0.1828 | 0.5406 | 0.0155 |
-| M | 3,892 | 64.6% | 0.2196 | 0.6286 | 0.0242 |
-| O | 127 | 74.8% | 0.1723 | 0.5143 | 0.0962 |
+| 250 | 6,811 | 61.9% | 0.2290 | 0.6503 | 0.0190 |
+| 500 | 2,674 | 67.0% | 0.2063 | 0.5990 | 0.0260 |
+| A | 484 | 66.5% | 0.2070 | 0.5976 | 0.0563 |
+| D | 1,353 | 67.3% | 0.2019 | 0.5850 | 0.0152 |
+| F | 105 | 62.9% | 0.2160 | 0.6183 | 0.0642 |
+| G | 3,491 | 71.8% | 0.1837 | 0.5431 | 0.0098 |
+| M | 3,892 | 64.2% | 0.2200 | 0.6296 | 0.0253 |
+| O | 127 | 72.4% | 0.1776 | 0.5248 | 0.1067 |
 
 ## By surface bucket (selected Elo, test window)
 
 | Model | n | Accuracy | Brier | Log loss | ECE |
 |---|---:|---:|---:|---:|---:|
-| Clay | 5,524 | 64.4% | 0.2172 | 0.6224 | 0.0220 |
-| Grass | 1,901 | 66.5% | 0.2097 | 0.6044 | 0.0166 |
-| Hard | 11,460 | 66.2% | 0.2103 | 0.6066 | 0.0087 |
-| Unknown | 52 | 61.5% | 0.2117 | 0.6086 | 0.0822 |
+| Clay | 5,524 | 64.5% | 0.2175 | 0.6232 | 0.0270 |
+| Grass | 1,901 | 65.8% | 0.2108 | 0.6071 | 0.0262 |
+| Hard | 11,460 | 65.9% | 0.2107 | 0.6074 | 0.0090 |
+| Unknown | 52 | 61.5% | 0.2148 | 0.6143 | 0.0891 |
 
 ## By best-of (selected Elo, test window)
 
 | Model | n | Accuracy | Brier | Log loss | ECE |
 |---|---:|---:|---:|---:|---:|
-| 3 | 15,371 | 64.2% | 0.2188 | 0.6267 | 0.0108 |
-| 5 | 3,566 | 71.8% | 0.1839 | 0.5432 | 0.0146 |
+| 3 | 15,371 | 64.1% | 0.2192 | 0.6274 | 0.0123 |
+| 5 | 3,566 | 71.6% | 0.1848 | 0.5458 | 0.0110 |
 
 ## By year (selected Elo, test window)
 
 | Model | n | Accuracy | Brier | Log loss | ECE |
 |---|---:|---:|---:|---:|---:|
-| 2019 | 2,700 | 65.6% | 0.2158 | 0.6206 | 0.0252 |
-| 2020 | 1,458 | 66.2% | 0.2111 | 0.6087 | 0.0308 |
-| 2021 | 2,714 | 64.8% | 0.2143 | 0.6149 | 0.0219 |
-| 2022 | 2,900 | 67.2% | 0.2065 | 0.5977 | 0.0131 |
-| 2023 | 2,973 | 65.1% | 0.2126 | 0.6113 | 0.0230 |
-| 2024 | 3,055 | 65.8% | 0.2098 | 0.6050 | 0.0164 |
-| 2025 | 2,922 | 65.5% | 0.2149 | 0.6170 | 0.0077 |
-| 2026 | 215 | 61.4% | 0.2221 | 0.6323 | 0.0606 |
+| 2019 | 2,700 | 65.3% | 0.2162 | 0.6215 | 0.0272 |
+| 2020 | 1,458 | 65.7% | 0.2125 | 0.6126 | 0.0272 |
+| 2021 | 2,714 | 64.9% | 0.2137 | 0.6140 | 0.0243 |
+| 2022 | 2,900 | 66.6% | 0.2078 | 0.6004 | 0.0123 |
+| 2023 | 2,973 | 65.1% | 0.2128 | 0.6116 | 0.0168 |
+| 2024 | 3,055 | 66.0% | 0.2100 | 0.6057 | 0.0106 |
+| 2025 | 2,922 | 65.2% | 0.2156 | 0.6184 | 0.0101 |
+| 2026 | 215 | 60.9% | 0.2207 | 0.6299 | 0.0591 |
 
 Confidence grades: *high* = both players ≥ 50 prior tour matches and ≥ 15 on the surface; *medium* = both ≥ 15 overall; *low* = otherwise.

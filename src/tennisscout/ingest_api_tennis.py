@@ -199,7 +199,7 @@ def ingest(conn: sqlite3.Connection, registry_dir: Path | None = None, log=print
         t_surface, t_level, t_indoor = (None, None, None) if is_chall else tml_event(tml_hist, name, year)
         surface, indoor = t_surface or surface, indoor or t_indoor
         slam = any(s in name.lower() for s in SLAMS)
-        level = "C" if is_chall else ("G" if slam else (t_level or "A"))
+        level = "C" if is_chall else ("G" if slam else ("D" if name.startswith("Davis Cup") else (t_level or "A")))
         tour_id = treg.get_or_mint("api_tennis", str(tkey), collected_at)
         tour_seen[tour_id] = name
         ed_id = ereg.get_or_mint("api_tennis", f"{tkey}:{season}", collected_at)
