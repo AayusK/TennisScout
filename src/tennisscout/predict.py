@@ -226,7 +226,7 @@ def predict(
             sets = sum(v * sum(map(int, k.split("-"))) for k, v in markov.set_scores(qa, qb, best_of, rule).items())
             tiebreaks += w * sets * markov.reach_tiebreak(qa, qb)
         components["set_scores"] = dist
-        components["expected_tiebreaks"] = tiebreaks
+        components["expected_tiebreaks"] = tiebreaks * json.loads(db.get_meta(conn, "tiebreak_scale") or "1")
     serving = db.get_meta(conn, "serving_model", "elo_selected")
     serving = serving if serving in components else "elo_selected"
 

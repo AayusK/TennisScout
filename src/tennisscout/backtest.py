@@ -135,7 +135,7 @@ def replay(matches: Iterable[MatchRow], cfg: EloConfig, score_from_year: int, mo
                 PredRecord(m.match_id, m.seq, m.year, a, b, pred.p_a, y, confidence(pred), m.level,
                            pred.bucket, m.best_of, m.outcome, ra, rb, m.date)
             )
-        weight = cfg.challenger_k_weight if m.level == "C" else 1.0
+        weight = (cfg.challenger_k_weight if m.level == "C" else 1.0) * (cfg.retired_weight if m.outcome == "retired" else 1.0)
         if cfg.mov:
             weight *= ((games_share(m.score) or MEAN_GAMES_SHARE) / MEAN_GAMES_SHARE) ** cfg.mov
         model.update(m.winner_id, m.loser_id, m.surface, m.indoor, m.rank_w, m.rank_l, m.date, weight)
@@ -258,6 +258,8 @@ CANDIDATE_CHANGES: list[tuple[str, dict]] = [
     ("margin of victory, cubed", {"mov": 3.0}),
     ("layoff boost 0.5", {"layoff_boost": 0.5}),
     ("layoff boost 1.0", {"layoff_boost": 1.0}),
+    ("retirements at half weight", {"retired_weight": 0.5}),
+    ("retirements ignored", {"retired_weight": 0.0}),
 ] + [(f"prediction scale x{s:.1f}", {"pred_scale": s}) for s in (1.1, 1.2, 1.3, 1.4, 1.5, 1.6)]
 
 
@@ -471,6 +473,8 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
     log(f"scoreline form_sd (validation): {scoreline_sd}")
     scorelines = {name: scoreline_check(used, sr_cfg, rng, form_sd=scoreline_sd, served=served_p)
                   for name, rng in (("validation", VALIDATION), ("test", test), ("forward", forward))}
+    # The chain over-counts tiebreaks at this width; one factor fitted on validation recalibrates the count.
+    tiebreak_scale = scorelines["validation"]["tiebreaks_per_match"]["observed"] / scorelines["validation"]["tiebreaks_per_match"]["pred"]
     scorelines["serve_return_only_test"] = scoreline_check(used, sr_cfg, test, form_sd=scoreline_sd)
     scorelines["independent_points_test"] = scoreline_check(used, sr_cfg, test, form_sd=0.0)
     completed_only = [p for p in test_sel if p.outcome == "completed"]
@@ -509,6 +513,7 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
         "walk_forward": walk,
         "scoreline_check": scorelines,
         "scoreline_form_sd": scoreline_sd,
+        "tiebreak_scale": tiebreak_scale,
         "scoreline_grid": {str(k): {"straight_sets_log_loss": v["straight_sets"]["log_loss"],
                                     "tiebreak_poisson_nll": v["tiebreaks_per_match"]["poisson_nll"]} for k, v in sc_grid.items()},
     }
@@ -521,6 +526,7 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
     with conn:
         db.set_meta(conn, "stack", json.dumps({"features": stack["features"], "coef": stack["coef"]}))
         db.set_meta(conn, "scoreline_form_sd", json.dumps(scoreline_sd))
+        db.set_meta(conn, "tiebreak_scale", json.dumps(tiebreak_scale))
         db.set_meta(conn, "gbm_model", booster.model_to_string() if booster else "")
     return result
 

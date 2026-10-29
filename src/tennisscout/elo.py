@@ -45,6 +45,7 @@ class EloConfig:
     challenger_k_weight: float = 1.0  # K multiplier for Challenger results
     mov: float = 0.0  # margin of victory: K x (winner's games share / 0.618) ** mov; 0 = off
     layoff_boost: float = 0.0  # extra K after a break: x(1 + boost * min(days off / 365, 1)) for breaks > 60 days
+    retired_weight: float = 1.0  # K multiplier when the loser retired (an injury, not only being outplayed)
     established_matches: int = 30  # players whose ratings feed the rank prior
     prior_alpha: float = 0.02  # EMA weight for the rank prior
     prior_min_obs: int = 50

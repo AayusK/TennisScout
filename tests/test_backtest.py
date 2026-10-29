@@ -82,3 +82,14 @@ def test_walk_forward_fits_only_on_earlier_years():
     # 2020 predictions use 2019's fit (positive slope), so they lean the wrong way there.
     hits = sum((p.p1 > 0.5) == bool(p.y) for p in by_year[2020])
     assert hits < 500
+
+
+def test_retired_weight_zero_leaves_ratings_alone():
+    from dataclasses import replace as dc_replace
+
+    rows = [MatchRow("M0000001", 1, 2000, "2000-01-01", "a", "b", "Hard", "O", 3, None, None, "250", "retired", "R32"),
+            MatchRow("M0000002", 2, 2000, "2000-01-08", "a", "b", "Hard", "O", 3, None, None, "250", "completed", "R32")]
+    preds, _ = replay(rows, EloConfig(retired_weight=0.0), 2000)
+    assert abs(preds[1].p1 - 0.5) < 1e-9  # the retirement taught the model nothing
+    preds, _ = replay([dc_replace(rows[0], outcome="completed"), rows[1]], EloConfig(), 2000)
+    assert abs(preds[1].p1 - 0.5) > 0.01
