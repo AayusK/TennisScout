@@ -72,6 +72,14 @@ def cmd_upcoming(args) -> None:
         print(f"{r['start'][:16]}  {r['tournament']} {r['round']}: {r['player_a']} vs {r['player_b']}  P({r['player_a']}) = {p}")
 
 
+def cmd_evaluate_markets(args) -> None:
+    from . import market_eval
+
+    out = market_eval.evaluate(_conn())
+    for key, c in out["comparisons"].items():
+        print(f"{key}: n={c['n']} market log loss {c['market']['log_loss']:.4f} model {c['model']['log_loss']:.4f}")
+
+
 def cmd_report(args) -> None:
     for p in report.write(_conn()):
         print("wrote", p)
@@ -164,6 +172,7 @@ def main(argv: list[str] | None = None) -> None:
     up = sub.add_parser("upcoming", help="scheduled ATP matches from API-Tennis with predictions (needs API_TENNIS_KEY)")
     up.add_argument("--days", type=int, default=2)
     up.set_defaults(func=cmd_upcoming)
+    sub.add_parser("evaluate-markets", help="model vs Kalshi/Polymarket at the price checkpoints (after fetch-markets)").set_defaults(func=cmd_evaluate_markets)
     sub.add_parser("verify-venues", help="check venue elevations and timezones against Open-Meteo (128 calls)").set_defaults(func=cmd_verify_venues)
     sub.add_parser("report", help="write docs/backtest.md and docs/data-audit.md").set_defaults(func=cmd_report)
     a = sub.add_parser("all", help="ingest, backtest, audit, report")

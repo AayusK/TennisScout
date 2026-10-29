@@ -336,21 +336,28 @@ def markets_md(m: dict) -> str:
         "model probability is the pre-match prediction for the same match. The combined model is a logistic fit on "
         "the market and model logits, fitted on the earlier half of the rows and scored on the later half.",
         "",
-        "| Checkpoint | n | Market Brier | Model Brier | Market log loss | Model log loss | Later half: market / model / combined log loss |",
-        "|---|---:|---:|---:|---:|---:|---|",
+        "| Checkpoint | n | Market Brier | Model Brier | Market log loss | Model log loss | Market gain ± se | "
+        "Later half: market / model / combined log loss | Combined gain over market ± se |",
+        "|---|---:|---:|---:|---:|---:|---:|---|---:|",
     ]
+
+    def gain(g):
+        return f"{g['log_loss']['gain']:.4f} ± {g['log_loss']['se']:.4f}" if g else "–"
+
     for key, c in m["comparisons"].items():
         lh = c["later_half"]
         L.append(f"| {key} | {c['n']:,} | {_f(c['market']['brier'])} | {_f(c['model']['brier'])} | "
-                 f"{_f(c['market']['log_loss'])} | {_f(c['model']['log_loss'])} | "
-                 f"{_f(lh['market']['log_loss'])} / {_f(lh['model']['log_loss'])} / {_f(lh['combined']['log_loss'])} (n={lh['n']:,}) |")
+                 f"{_f(c['market']['log_loss'])} | {_f(c['model']['log_loss'])} | {gain(c.get('market_vs_model'))} | "
+                 f"{_f(lh['market']['log_loss'])} / {_f(lh['model']['log_loss'])} / {_f(lh['combined']['log_loss'])} (n={lh['n']:,}) | "
+                 f"{gain(lh.get('combined_vs_market'))} |")
     L += ["", "## Trading check (Kalshi, one hour before the scheduled start)", "",
           "One contract on a player whenever the model probability exceeds the Kalshi ask plus taker fee by the "
           "threshold; settled at 1 or 0. Historical depth is not stored, so whether the size was available is not "
           "verified, and this is a research check, not a betting result.", "",
-          "| Edge threshold | Bets | P&L (sum, $ per contract) | ROI per bet |", "|---|---:|---:|---:|"]
+          "| Edge threshold | Bets | P&L (sum, $ per contract) ± se | ROI per bet |", "|---|---:|---:|---:|"]
     for k, t in m["trading"].items():
-        L.append(f"| {k} | {t['bets']:,} | {t['pnl_per_contract_sum']} | {_pct(t['roi']) if t['roi'] is not None else '–'} |")
+        se = f" ± {t['pnl_se']}" if t.get("pnl_se") else ""
+        L.append(f"| {k} | {t['bets']:,} | {t['pnl_per_contract_sum']}{se} | {_pct(t['roi']) if t['roi'] is not None else '–'} |")
     L.append("")
     return "\n".join(L)
 

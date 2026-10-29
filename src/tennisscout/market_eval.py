@@ -20,10 +20,11 @@ import json
 import math
 import sqlite3
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from . import config, db, markets, metrics
 from .audit import market_coverage
-from .backtest import fit_logistic, safe_logit
+from .backtest import fit_logistic, paired_gain, safe_logit
 from .ingest_charting import NameIndex
 
 CACHE = config.RAW_DIR / "market_prices"
@@ -149,7 +150,12 @@ def evaluate(conn: sqlite3.Connection, log=print, max_matches: int | None = None
         coef = fit_logistic([[safe_logit(r[market_key]), safe_logit(r["model"])] for r in fit_rows], [r["y"] for r in fit_rows])
         comb = [1 / (1 + math.exp(-(coef[0] * safe_logit(r[market_key]) + coef[1] * safe_logit(r["model"])))) for r in test_rows]
         ty = [r["y"] for r in test_rows]
+
+        def recs(ps, rs):
+            return [SimpleNamespace(p1=p, y=r["y"]) for p, r in zip(ps, rs)]
+
         out["comparisons"][market_key] = {
+            "market_vs_model": paired_gain(recs([r["model"] for r in same], same), recs([r[market_key] for r in same], same)),
             "n": len(same),
             "market": metrics.summarize([r[market_key] for r in same], ys),
             "model": metrics.summarize([r["model"] for r in same], ys),
@@ -159,6 +165,7 @@ def evaluate(conn: sqlite3.Connection, log=print, max_matches: int | None = None
                 "market": metrics.summarize([r[market_key] for r in test_rows], ty),
                 "model": metrics.summarize([r["model"] for r in test_rows], ty),
                 "combined": metrics.summarize(comb, ty),
+                "combined_vs_market": paired_gain(recs([r[market_key] for r in test_rows], test_rows), recs(comb, test_rows)),
             },
         }
     out["trading"] = trading(rows)
@@ -174,16 +181,18 @@ def trading(rows: list[dict]) -> dict:
     """Flat one-contract bets at the Kalshi ask 1 h before start when model edge after fee exceeds a threshold."""
     res = {}
     for edge in (0.02, 0.05, 0.10):
-        n = pnl = 0.0
+        bets = []
         for r in rows:
             for p_model, ask, won in ((r["model"], r.get("kalshi_ask_p1"), r["y"]), (1 - r["model"], r.get("kalshi_ask_p2"), 1 - r["y"])):
                 if ask is None:
                     continue
                 cost = ask + kalshi_fee(ask)
                 if p_model - cost >= edge:
-                    n += 1
-                    pnl += won - cost
-        res[f"edge>={edge}"] = {"bets": int(n), "pnl_per_contract_sum": round(pnl, 2), "roi": round(pnl / n, 4) if n else None}
+                    bets.append(won - cost)
+        n, pnl = len(bets), sum(bets)
+        sd = (sum((b - pnl / n) ** 2 for b in bets) / (n - 1)) ** 0.5 if n > 1 else None
+        res[f"edge>={edge}"] = {"bets": n, "pnl_per_contract_sum": round(pnl, 2), "roi": round(pnl / n, 4) if n else None,
+                                "pnl_se": round(sd * n**0.5, 2) if sd else None}
     return res
 
 

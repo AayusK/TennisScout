@@ -209,13 +209,18 @@ def predict(
                                  components["elo_sr_blend"], [feats[f] for f in ALL], best_of,
                                  "G" if best_of == 5 else None, surface)
                 components["gbm"] = float(ml_layer.predict(lgb.Booster(model_str=gbm_text), np.array([x]))[0])
-        # Set scores and tiebreaks use their own (validation-chosen) form-on-the-day width.
+        # Set scores and tiebreaks use their own (validation-chosen) form-on-the-day width, and are anchored
+        # to the served win probability so the two outputs agree.
         sr.form_sd_override = json.loads(db.get_meta(conn, "scoreline_form_sd") or "null")
         rule = markov.final_set_rule("G" if best_of == 5 else None, None, date.today().year, best_of)
+        io = "I" if indoor else "O"
+        served = db.get_meta(conn, "serving_model", "elo_selected")
+        target = components.get(served, components["elo_sr_blend"])
+        d0 = markov.implied_shift(*sr.point_probs(a.player_id, b.player_id, surface, io), target, best_of, rule, sr.form_nodes())
         dist: dict[str, float] = {}
         tiebreaks = 0.0
         for d, w in sr.form_nodes():
-            qa, qb = sr.point_probs(a.player_id, b.player_id, surface, "I" if indoor else "O", d)
+            qa, qb = sr.point_probs(a.player_id, b.player_id, surface, io, d0 + d)
             for k, v in markov.set_scores(qa, qb, best_of, rule).items():
                 dist[k] = dist.get(k, 0.0) + w * v
             sets = sum(v * sum(map(int, k.split("-"))) for k, v in markov.set_scores(qa, qb, best_of, rule).items())
@@ -240,7 +245,8 @@ def predict(
     if sr and min(components["serve_return_matches"]) < 15:
         caveats.append("Serve/return estimates for at least one player rest mostly on the pool prior (few stat lines).")
     caveats.append(("Surface Elo + serve/return Markov" if sr else "Surface Elo only")
-                   + ": no fatigue, conditions, news or market inputs yet.")
+                   + (" + rest/load/age context" if "stacked" in components else "")
+                   + ": no weather, injury news or market inputs yet.")
 
     return MatchPrediction(
         player_a=a,

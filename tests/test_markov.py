@@ -1,5 +1,6 @@
 import pytest
 
+from tennisscout import markov
 from tennisscout.markov import STANDARD, final_set_rule, hold, match_win, reach_tiebreak, set_win, tiebreak
 
 RULES = [STANDARD, None, (12, 7), (6, 10), ("match_tb", 10), ("short",)]
@@ -58,3 +59,16 @@ def test_set_score_distribution_sums_and_matches_match_win():
         assert sum(d.values()) == pytest.approx(1.0)
         wins = sum(v for k, v in d.items() if int(k.split("-")[0]) > int(k.split("-")[1]))
         assert wins == pytest.approx(match_win(0.66, 0.6, bo, (6, 10)))
+
+
+def test_implied_shift_hits_the_target_and_keeps_symmetry():
+    import math
+
+    nodes = [(-0.2, 0.25), (0.0, 0.5), (0.2, 0.25)]
+    for target, bo in ((0.7, 3), (0.25, 5), (0.5, 3)):
+        d = markov.implied_shift(0.66, 0.6, target, bo, markov.STANDARD, nodes)
+        la, lb = math.log(0.66 / 0.34), math.log(0.6 / 0.4)
+        sig = lambda x: 1 / (1 + math.exp(-x))
+        p = sum(w * markov.match_win(sig(la + d + s), sig(lb - d - s), bo) for s, w in nodes)
+        assert abs(p - target) < 1e-5
+    assert abs(markov.implied_shift(0.63, 0.63, 0.5)) < 1e-6

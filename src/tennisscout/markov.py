@@ -8,6 +8,7 @@ not tracked across sets; tests check that symmetry numerically.
 
 from __future__ import annotations
 
+import math
 from functools import lru_cache
 
 STANDARD = (6, 7)  # tiebreak at 6-6, first to 7
@@ -121,6 +122,35 @@ def match_win(pa: float, pb: float, best_of: int = 3, final_rule: tuple | None =
     if best_of == 5:
         return s**3 + 3 * s**3 * (1 - s) + 6 * s * s * (1 - s) ** 2 * f
     return s * s + 2 * s * (1 - s) * f
+
+
+def implied_shift(pa: float, pb: float, target: float, best_of: int = 3, final_rule: tuple | None = STANDARD,
+                  nodes=((0.0, 1.0),)) -> float:
+    """Logit shift d (A's serve +d, B's serve -d) at which A's match-win chance, averaged over the (shift, weight)
+    form nodes, equals ``target``.
+
+    The pair keeps its serve dominance (which drives holds and tiebreaks) while who is better comes from a
+    calibrated match-winner model, so set scores and tiebreak odds agree with the served win probability.
+    """
+    la, lb = math.log(pa / (1 - pa)), math.log(pb / (1 - pb))
+
+    def f(d):
+        return sum(w * match_win(1 / (1 + math.exp(-(la + d + s))), 1 / (1 + math.exp(-(lb - d - s))), best_of, final_rule)
+                   for s, w in nodes) - target
+
+    lo, hi, flo, fhi, side, d = -4.0, 4.0, f(-4.0), f(4.0), 0, 0.0
+    for _ in range(60):  # Illinois regula falsi: f rises monotonically in d
+        d = (lo * fhi - hi * flo) / (fhi - flo)
+        fd = f(d)
+        if abs(fd) < 1e-6:
+            break
+        if fd * fhi > 0:
+            hi, fhi = d, fd
+            flo, side = (flo / 2 if side == 1 else flo), 1
+        else:
+            lo, flo = d, fd
+            fhi, side = (fhi / 2 if side == -1 else fhi), -1
+    return d
 
 
 def set_scores(pa: float, pb: float, best_of: int = 3, final_rule: tuple | None = STANDARD) -> dict[str, float]:

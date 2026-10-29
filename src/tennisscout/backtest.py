@@ -463,11 +463,14 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
             log("serving model: gbm layer on the stack")
     # Set-score and tiebreak odds are their own output, so their form-on-the-day width is chosen on
     # validation scoreline accuracy (straight-sets log loss), separately from the match-winner blend.
-    sc_grid = {sd: scoreline_check(used, sr_cfg, VALIDATION, form_sd=sd) for sd in (0.0, 0.1, 0.15, 0.2, 0.25, 0.3)}
+    # The chain is anchored to the served model's win probability (markov.implied_shift).
+    served_p = {p.match_id: p.p1 if p.y else 1 - p.p1 for p in candidates[serving]}
+    sc_grid = {sd: scoreline_check(used, sr_cfg, VALIDATION, form_sd=sd, served=served_p) for sd in (0.1, 0.15, 0.2, 0.25, 0.3)}
     scoreline_sd = min(sc_grid, key=lambda sd: sc_grid[sd]["straight_sets"]["log_loss"])
     log(f"scoreline form_sd (validation): {scoreline_sd}")
-    scorelines = {name: scoreline_check(used, sr_cfg, rng, form_sd=scoreline_sd)
+    scorelines = {name: scoreline_check(used, sr_cfg, rng, form_sd=scoreline_sd, served=served_p)
                   for name, rng in (("validation", VALIDATION), ("test", test), ("forward", forward))}
+    scorelines["serve_return_only_test"] = scoreline_check(used, sr_cfg, test, form_sd=scoreline_sd)
     scorelines["independent_points_test"] = scoreline_check(used, sr_cfg, test, form_sd=0.0)
     completed_only = [p for p in test_sel if p.outcome == "completed"]
     result = {
@@ -562,10 +565,13 @@ def save_sr(conn, cfg: SRConfig, model: ServeReturnModel, preds: dict[str, list[
 __all__ = ["run", "replay", "load_matches", "MatchRow", "PredRecord", "OVERALL"]
 
 
-def scoreline_check(matches: list[MatchRow], cfg: SRConfig, dates=TEST, form_sd: float | None = None) -> dict:
+def scoreline_check(matches: list[MatchRow], cfg: SRConfig, dates=TEST, form_sd: float | None = None,
+                    served: dict[str, float] | None = None) -> dict:
     """How well the Markov chain predicts straight sets and tiebreaks, vs the actual scores.
 
     ``form_sd`` widens the form-on-the-day integration at prediction time only (ratings use ``cfg``).
+    ``served`` (match_id -> P(winner wins) from the served model) anchors the point probabilities so the
+    chain's match-win chance equals the served one; without it the serve/return ratings decide alone.
     """
     from . import markov
 
@@ -579,8 +585,12 @@ def scoreline_check(matches: list[MatchRow], cfg: SRConfig, dates=TEST, form_sd:
             rule = markov.final_set_rule(m.level, m.tourney, m.year, m.best_of, cfg.next_gen_format)
             need = 3 if m.best_of == 5 else 2
             p_straight = e_tb = 0.0
-            for d, w in model.form_nodes():
-                pa, pb = model.point_probs(m.winner_id, m.loser_id, m.surface, m.indoor, d)
+            nodes, d0 = model.form_nodes(), 0.0
+            if served and m.match_id in served:
+                d0 = markov.implied_shift(*model.point_probs(m.winner_id, m.loser_id, m.surface, m.indoor),
+                                          served[m.match_id], m.best_of or 3, rule, nodes)
+            for d, w in nodes:
+                pa, pb = model.point_probs(m.winner_id, m.loser_id, m.surface, m.indoor, d0 + d)
                 s = markov.set_win(pa, pb, rule if rule == ("short",) else markov.STANDARD)
                 ps_ = s**need + (1 - s) ** need
                 if need == 3:

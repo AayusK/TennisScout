@@ -75,3 +75,15 @@ def test_kalshi_fee_and_checkpoint_lookup():
     series = [(100, 0.4), (200, 0.5), (300, 0.6)]
     assert at(series, 250) == (200, 0.5)
     assert at(series, 50) is None
+
+
+def test_trading_counts_edge_after_fee():
+    from tennisscout import market_eval
+
+    rows = [{"model": 0.7, "y": 1, "kalshi_ask_p1": 0.5, "kalshi_ask_p2": 0.52},
+            {"model": 0.7, "y": 0, "kalshi_ask_p1": 0.5, "kalshi_ask_p2": 0.52},
+            {"model": 0.5, "y": 1, "kalshi_ask_p1": 0.5, "kalshi_ask_p2": 0.52}]  # no edge on the last row
+    t = market_eval.trading(rows)["edge>=0.1"]
+    fee = market_eval.kalshi_fee(0.5)
+    assert t["bets"] == 2 and abs(t["pnl_per_contract_sum"] - round((1 - 0.5 - fee) + (0 - 0.5 - fee), 2)) < 1e-9
+    assert t["pnl_se"] > 0
