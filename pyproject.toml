@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tennisscout"
+version = "0.1.0"
+description = "Tennis scouting research app: time-stamped data layer, surface Elo baseline, chronological backtests."
+readme = "README.md"
+requires-python = ">=3.11"
+# The core pipeline (ingest, Elo, backtest, audit) is stdlib-only on purpose.
+dependencies = []
+
+[project.optional-dependencies]
+api = ["fastapi>=0.110", "uvicorn>=0.29"]
+net = ["httpx>=0.27"]
+dev = ["pytest>=8", "fastapi>=0.110", "httpx>=0.27"]
+
+[project.scripts]
+tennisscout = "tennisscout.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tennisscout = ["schema.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]

@@ -1,0 +1,11 @@
+# Raw mirrors, the SQLite database and per-match outputs stay local.
+# TML-Database terms forbid redistributing the raw data; MCP is CC BY-NC-SA.
+data/
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+build/
+dist/
