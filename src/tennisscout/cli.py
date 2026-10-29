@@ -109,6 +109,14 @@ def cmd_predict(args) -> None:
     if args.json:
         print(json.dumps(res.to_dict(), indent=2))
         return
+    if args.report:
+        from . import scouting
+        try:
+            print(scouting.write_report(res.to_dict()))
+        except scouting.ReportUnavailable as e:
+            print(f"report unavailable: {e}", file=sys.stderr)
+            sys.exit(1)
+        return
     a, b = res.player_a, res.player_b
     print(f"{a.name} vs {b.name} | {res.surface}{' indoor' if res.indoor else ''}, best of {res.best_of}")
     print(f"  P({a.name} wins) = {res.p_a:.1%}   [{res.model}]")
@@ -188,6 +196,7 @@ def main(argv: list[str] | None = None) -> None:
     pr.add_argument("--indoor", action="store_true")
     pr.add_argument("--best-of", type=int, default=3, choices=[3, 5])
     pr.add_argument("--json", action="store_true")
+    pr.add_argument("--report", action="store_true", help="LLM scouting report from the prediction (needs ANTHROPIC_API_KEY)")
     pr.set_defaults(func=cmd_predict)
 
     s = sub.add_parser("search", help="find players by name")
