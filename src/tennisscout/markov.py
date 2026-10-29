@@ -123,6 +123,17 @@ def match_win(pa: float, pb: float, best_of: int = 3, final_rule: tuple | None =
     return s * s + 2 * s * (1 - s) * f
 
 
+def set_scores(pa: float, pb: float, best_of: int = 3, final_rule: tuple | None = STANDARD) -> dict[str, float]:
+    """Distribution of final set scores from A's side, e.g. {"2-0": .., "2-1": .., "1-2": .., "0-2": ..}."""
+    s = set_win(pa, pb, final_rule if final_rule == ("short",) else STANDARD)
+    f = set_win(pa, pb, final_rule)
+    q = 1 - s
+    if best_of == 5:
+        return {"3-0": s**3, "3-1": 3 * s**3 * q, "3-2": 6 * s * s * q * q * f,
+                "2-3": 6 * s * s * q * q * (1 - f), "1-3": 3 * s * q**3, "0-3": q**3}
+    return {"2-0": s * s, "2-1": 2 * s * q * f, "1-2": 2 * s * q * (1 - f), "0-2": q * q}
+
+
 def final_set_rule(level: str | None, tourney: str | None, year: int, best_of: int | None, next_gen: bool = True):
     """Deciding-set format by event and year."""
     t = (tourney or "").lower()

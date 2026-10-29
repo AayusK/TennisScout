@@ -77,9 +77,11 @@ class ServeReturnModel:
         mu = self.mu.get(k, self.mu.get("Hard", logit(0.64)))
         return sigmoid(self._eta(a, b, k, mu) + shift), sigmoid(self._eta(b, a, k, mu) - shift)
 
+    form_sd_override: float | None = None  # prediction-time width for scoreline outputs
+
     def form_nodes(self):
         """(shift, weight) pairs to average over; a single unshifted point when form_sd is 0."""
-        sd = self.cfg.form_sd
+        sd = self.cfg.form_sd if self.form_sd_override is None else self.form_sd_override
         return [(sd * z, w) for z, w in GAUSS_NORMAL] if sd else [(0.0, 1.0)]
 
     def predict(self, a, b, surface, indoor, best_of, level, tourney, year) -> tuple[float, float, float]:

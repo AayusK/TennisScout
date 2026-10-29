@@ -48,3 +48,13 @@ def test_next_gen_and_tiebreak_reach():
     # Short sets are more random: the favourite gains less.
     assert 0.5 < set_win(0.68, 0.6, ("short",)) < set_win(0.68, 0.6)
     assert reach_tiebreak(0.8, 0.8) > reach_tiebreak(0.6, 0.6)
+
+
+def test_set_score_distribution_sums_and_matches_match_win():
+    from tennisscout.markov import set_scores
+
+    for bo in (3, 5):
+        d = set_scores(0.66, 0.6, bo, (6, 10))
+        assert sum(d.values()) == pytest.approx(1.0)
+        wins = sum(v for k, v in d.items() if int(k.split("-")[0]) > int(k.split("-")[1]))
+        assert wins == pytest.approx(match_win(0.66, 0.6, bo, (6, 10)))

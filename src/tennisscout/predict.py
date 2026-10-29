@@ -16,6 +16,7 @@ from datetime import date
 
 from . import config, db, markov
 from .backtest import safe_logit
+from .features import NAMES, FeatureState, player_info
 from .elo import OVERALL, EloConfig, EloModel, confidence
 from .normalize import norm_name
 from .serve_return import ServeReturnModel, SRConfig
@@ -131,6 +132,23 @@ def load_sr(conn: sqlite3.Connection) -> ServeReturnModel | None:
     return m
 
 
+def live_features(conn: sqlite3.Connection, a: str, b: str, today: date) -> dict[str, float]:
+    """The stacking features as of ``today``, computed the same way as in the replay (features.py)."""
+    st = FeatureState(player_info(conn), {})
+    rows = conn.execute(
+        """SELECT m.event_date_lo, m.winner_id, m.loser_id FROM match m
+           WHERE (m.winner_id IN (?, ?) OR m.loser_id IN (?, ?)) AND m.identity_status = 'ok'
+             AND m.outcome NOT IN ('walkover', 'default', 'unknown') ORDER BY m.seq""", (a, b, a, b))
+    for d, w, l in rows:
+        st.update(_Row(d, w, l))
+    return dict(zip(NAMES, st.features(_Row(today.isoformat(), a, b, match_id=""), a, b)))
+
+
+class _Row:
+    def __init__(self, d, w, l, match_id=None):
+        self.date, self.winner_id, self.loser_id, self.match_id = d, w, l, match_id
+
+
 def predict(
     conn: sqlite3.Connection,
     player_a: str,
@@ -169,6 +187,26 @@ def predict(
             "hold": [markov.hold(pa), markov.hold(pb)],
             "serve_return_matches": [sr.n.get(a.player_id, 0), sr.n.get(b.player_id, 0)],
         })
+        stack = json.loads(db.get_meta(conn, "stack") or "null")
+        if stack and stack["features"]:
+            feats = live_features(conn, a.player_id, b.player_id, date.today())
+            z = stack["coef"][0] * safe_logit(components["elo_sr_blend"])
+            z += sum(c * feats[f] for c, f in zip(stack["coef"][1:], stack["features"]))
+            components["stacked"] = 1 / (1 + math.exp(-z))
+            components["context_features"] = {f: feats[f] for f in stack["features"]}
+        # Set scores and tiebreaks use their own (validation-chosen) form-on-the-day width.
+        sr.form_sd_override = json.loads(db.get_meta(conn, "scoreline_form_sd") or "null")
+        rule = markov.final_set_rule("G" if best_of == 5 else None, None, date.today().year, best_of)
+        dist: dict[str, float] = {}
+        tiebreaks = 0.0
+        for d, w in sr.form_nodes():
+            qa, qb = sr.point_probs(a.player_id, b.player_id, surface, "I" if indoor else "O", d)
+            for k, v in markov.set_scores(qa, qb, best_of, rule).items():
+                dist[k] = dist.get(k, 0.0) + w * v
+            sets = sum(v * sum(map(int, k.split("-"))) for k, v in markov.set_scores(qa, qb, best_of, rule).items())
+            tiebreaks += w * sets * markov.reach_tiebreak(qa, qb)
+        components["set_scores"] = dist
+        components["expected_tiebreaks"] = tiebreaks
     serving = db.get_meta(conn, "serving_model", "elo_selected")
     serving = serving if serving in components else "elo_selected"
 

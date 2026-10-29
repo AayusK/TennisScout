@@ -255,6 +255,7 @@ CANDIDATE_CHANGES: list[tuple[str, dict]] = [
     ("k_num=300", {"k_num": 300.0}),
     ("margin of victory, linear", {"mov": 1.0}),
     ("margin of victory, squared", {"mov": 2.0}),
+    ("margin of victory, cubed", {"mov": 3.0}),
     ("layoff boost 0.5", {"layoff_boost": 0.5}),
     ("layoff boost 1.0", {"layoff_boost": 1.0}),
 ] + [(f"prediction scale x{s:.1f}", {"pred_scale": s}) for s in (1.1, 1.2, 1.3, 1.4, 1.5, 1.6)]
@@ -409,10 +410,20 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
         return out
 
     fwd_serving = window(candidates[serving], forward)
-    stack = stack_experiment(conn, all_matches if data_choice != "tour_only" else matches, candidates[serving],
-                             {"test": test, "test_2023_on": after_decision, "forward": forward}, log)
-    scorelines = {name: scoreline_check(all_matches if data_choice != "tour_only" else matches, sr_cfg, rng)
-                  for name, rng in (("test", test), ("forward", forward))}
+    used = all_matches if data_choice != "tour_only" else matches
+    stack, preds_stacked = stack_experiment(conn, used, candidates[serving],
+                                            {"test": test, "test_2023_on": after_decision, "forward": forward}, log)
+    if stack["features"]:  # the layer only exists if it improved validation
+        candidates["stacked"], serving = preds_stacked, "stacked"
+        log(f"serving model: stacked over {stack['features']}")
+    # Set-score and tiebreak odds are their own output, so their form-on-the-day width is chosen on
+    # validation scoreline accuracy (straight-sets log loss), separately from the match-winner blend.
+    sc_grid = {sd: scoreline_check(used, sr_cfg, VALIDATION, form_sd=sd) for sd in (0.0, 0.1, 0.15, 0.2, 0.25, 0.3)}
+    scoreline_sd = min(sc_grid, key=lambda sd: sc_grid[sd]["straight_sets"]["log_loss"])
+    log(f"scoreline form_sd (validation): {scoreline_sd}")
+    scorelines = {name: scoreline_check(used, sr_cfg, rng, form_sd=scoreline_sd)
+                  for name, rng in (("validation", VALIDATION), ("test", test), ("forward", forward))}
+    scorelines["independent_points_test"] = scoreline_check(used, sr_cfg, test, form_sd=0.0)
     completed_only = [p for p in test_sel if p.outcome == "completed"]
     result = {
         "validation_years": VALIDATION,
@@ -446,9 +457,17 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
         "forward_serving_calibration": metrics.calibration([p.p1 for p in fwd_serving], [p.y for p in fwd_serving]) if fwd_serving else None,
         "stack_experiment": stack,
         "scoreline_check": scorelines,
+        "scoreline_form_sd": scoreline_sd,
+        "scoreline_grid": {str(k): v["straight_sets"]["log_loss"] for k, v in sc_grid.items()},
     }
     save(conn, selected, preds_sel, model_sel, result)
-    save_sr(conn, sr_cfg, model_sr, {"serve_return": preds_sr, "elo_sr_blend": preds_blend}, coef, serving)
+    extra = {"serve_return": preds_sr, "elo_sr_blend": preds_blend}
+    if "stacked" in candidates:
+        extra["stacked"] = candidates["stacked"]
+    save_sr(conn, sr_cfg, model_sr, extra, coef, serving)
+    with conn:
+        db.set_meta(conn, "stack", json.dumps({"features": stack["features"], "coef": stack["coef"]}))
+        db.set_meta(conn, "scoreline_form_sd", json.dumps(scoreline_sd))
     return result
 
 
@@ -494,11 +513,16 @@ def save_sr(conn, cfg: SRConfig, model: ServeReturnModel, preds: dict[str, list[
 __all__ = ["run", "replay", "load_matches", "MatchRow", "PredRecord", "OVERALL"]
 
 
-def scoreline_check(matches: list[MatchRow], cfg: SRConfig, dates=TEST) -> dict:
-    """How well the Markov chain predicts straight sets and tiebreaks, vs the actual TML scores."""
+def scoreline_check(matches: list[MatchRow], cfg: SRConfig, dates=TEST, form_sd: float | None = None) -> dict:
+    """How well the Markov chain predicts straight sets and tiebreaks, vs the actual scores.
+
+    ``form_sd`` widens the form-on-the-day integration at prediction time only (ratings use ``cfg``).
+    """
     from . import markov
 
     model = ServeReturnModel(cfg)
+    if form_sd is not None:
+        model.form_sd_override = form_sd
     rows = []
     for m in matches:
         if m.scored and dates[0] <= m.date <= dates[1] and m.outcome == "completed":
@@ -571,4 +595,4 @@ def stack_experiment(conn, matches: list[MatchRow], base: list[PredRecord], wind
         b, s_ = window(base, rng), window(stacked, rng)
         if b:
             res[name] = {"base": score(b), "stacked": score(s_), "gain": paired_gain(b, s_)}
-    return res
+    return res, stacked
