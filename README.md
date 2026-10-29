@@ -65,6 +65,14 @@ pytest                     # tests on synthetic fixtures; no real data or networ
 Ambiguous names are refused rather than guessed. `tennisscout predict Zverev Sinner` lists the
 three Zverevs with their internal IDs, and you pass one (`P007638`) instead.
 
+## Scheduled jobs (GitHub Actions, run from the default branch)
+
+| Workflow | When | What |
+|---|---|---|
+| `ci.yml` | every push | `pytest` |
+| `market-archive.yml` | every 15 min | compact Kalshi/Polymarket ATP order-book snapshot, committed to the `market-archive` branch |
+| `nightly-refresh.yml` | 06:17 UTC | fetch -> ingest -> backtest -> report; commits `registry/` (new permanent IDs) and `docs/`. Set the `API_TENNIS_KEY` repository secret for 2026 results |
+
 ## Layout
 
 ```
