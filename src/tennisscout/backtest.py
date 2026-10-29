@@ -135,7 +135,8 @@ def replay(matches: Iterable[MatchRow], cfg: EloConfig, score_from_year: int, mo
                 PredRecord(m.match_id, m.seq, m.year, a, b, pred.p_a, y, confidence(pred), m.level,
                            pred.bucket, m.best_of, m.outcome, ra, rb, m.date)
             )
-        weight = (cfg.challenger_k_weight if m.level == "C" else 1.0) * (cfg.retired_weight if m.outcome == "retired" else 1.0)
+        weight = ((cfg.challenger_k_weight if m.level == "C" else 1.0) * (cfg.retired_weight if m.outcome == "retired" else 1.0)
+                  * (cfg.slam_k_weight if m.level == "G" else 1.0) * (cfg.qual_k_weight if m.round == "Q" else 1.0))
         if cfg.mov:
             weight *= ((games_share(m.score) or MEAN_GAMES_SHARE) / MEAN_GAMES_SHARE) ** cfg.mov
         model.update(m.winner_id, m.loser_id, m.surface, m.indoor, m.rank_w, m.rank_l, m.date, weight)
@@ -260,6 +261,8 @@ CANDIDATE_CHANGES: list[tuple[str, dict]] = [
     ("layoff boost 1.0", {"layoff_boost": 1.0}),
     ("retirements at half weight", {"retired_weight": 0.5}),
     ("retirements ignored", {"retired_weight": 0.0}),
+    ("Grand Slam K x1.25", {"slam_k_weight": 1.25}),
+    ("Grand Slam K x1.5", {"slam_k_weight": 1.5}),
 ] + [(f"prediction scale x{s:.1f}", {"pred_scale": s}) for s in (1.1, 1.2, 1.3, 1.4, 1.5, 1.6)]
 
 
@@ -372,6 +375,7 @@ def run(conn: sqlite3.Connection, log=print) -> dict:
     if len(all_matches) > len(matches):
         for w in (2.0, 1.5, 1.0, 0.5):
             data_variants[f"with_challenger_k{w}"] = (all_matches, selected.with_(challenger_k_weight=w))
+        data_variants["with_challenger_k1.5_qualifying_k0.5"] = (all_matches, selected.with_(challenger_k_weight=1.5, qual_k_weight=0.5))
     data_results, variant_preds = {}, {}
     for name, (ms, ecfg) in data_variants.items():
         pe, me = replay(ms, ecfg, START_YEAR)
