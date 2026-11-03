@@ -2,7 +2,7 @@
 
 # Backtest: pre-match win probability
 
-Chronological replay of 257,891 singles matches (TML-Database 1968–Jan 2026, API-Tennis ATP after that and Challenger/qualifying from 2019), of which 199,103 are tour-level main draw and are the only ones scored. Each match is predicted from ratings that have absorbed only earlier matches, then it updates them. Model choices were made on **2014-01-01 – 2018-12-31** (validation) and scored on **2019-01-01 – 2026-01-21** (test). The **forward** window (2026-01-22 on) is API-Tennis data that no choice ever saw.
+Chronological replay of 257,949 singles matches (TML-Database 1968–Jan 2026, API-Tennis ATP after that and Challenger/qualifying from 2019), of which 199,112 are tour-level main draw and are the only ones scored. Each match is predicted from ratings that have absorbed only earlier matches, then it updates them. Model choices were made on **2014-01-01 – 2018-12-31** (validation) and scored on **2019-01-01 – 2026-01-21** (test). The **forward** window (2026-01-22 on) is API-Tennis data that no choice ever saw.
 
 Excluded from both rating updates and scoring: walkovers, defaults, unknown results, and every row whose player identity failed a check (ID/name conflict, unknown or missing ID, placeholder player).
 
@@ -22,14 +22,14 @@ Excluded from both rating updates and scoring: walkovers, defaults, unknown resu
 
 | Model | n | Accuracy | Brier | Log loss | ECE |
 |---|---:|---:|---:|---:|---:|
-| Coin flip | 2,543 | 50.0% | 0.2500 | 0.6931 | 0.0018 |
-| Elo, overall only | 2,543 | 65.4% | 0.2223 | 0.6384 | 0.0569 |
-| Elo, 50/50 surface blend | 2,543 | 64.7% | 0.2200 | 0.6313 | 0.0428 |
-| Elo, selected | 2,543 | 66.0% | 0.2106 | 0.6074 | 0.0166 |
-| Serve/return + Markov | 2,543 | 64.5% | 0.2216 | 0.6370 | 0.0492 |
-| **Elo + serve/return blend (served)** | 2,543 | 66.4% | 0.2097 | 0.6056 | 0.0196 |
+| Coin flip | 2,552 | 50.0% | 0.2500 | 0.6931 | 0.0020 |
+| Elo, overall only | 2,552 | 65.4% | 0.2224 | 0.6386 | 0.0568 |
+| Elo, 50/50 surface blend | 2,552 | 64.6% | 0.2202 | 0.6317 | 0.0437 |
+| Elo, selected | 2,552 | 66.0% | 0.2109 | 0.6079 | 0.0170 |
+| Serve/return + Markov | 2,552 | 64.5% | 0.2216 | 0.6370 | 0.0485 |
+| **Elo + serve/return blend (served)** | 2,552 | 66.4% | 0.2099 | 0.6060 | 0.0193 |
 
-Rankings are not in the API-Tennis feed, so there is no ranking baseline here. Blend vs Elo on these matches: Brier gain 0.0009 ± 0.0009, log-loss gain 0.0018 ± 0.0021.
+Rankings are not in the API-Tennis feed, so there is no ranking baseline here. Blend vs Elo on these matches: Brier gain 0.0010 ± 0.0009, log-loss gain 0.0019 ± 0.0021.
 
 | Predicted | n | Mean prediction | Observed |
 |---|---:|---:|---:|
@@ -37,8 +37,8 @@ Rankings are not in the API-Tennis feed, so there is no ranking baseline here. B
 | 0.1–0.2 | 103 | 0.156 | 0.136 |
 | 0.2–0.3 | 215 | 0.254 | 0.247 |
 | 0.3–0.4 | 386 | 0.353 | 0.334 |
-| 0.4–0.5 | 529 | 0.450 | 0.433 |
-| 0.5–0.6 | 498 | 0.549 | 0.534 |
+| 0.4–0.5 | 532 | 0.449 | 0.432 |
+| 0.5–0.6 | 504 | 0.549 | 0.536 |
 | 0.6–0.7 | 378 | 0.647 | 0.656 |
 | 0.7–0.8 | 259 | 0.746 | 0.803 |
 | 0.8–0.9 | 108 | 0.844 | 0.870 |
@@ -50,13 +50,13 @@ API-Tennis adds Challenger and qualifying matches from 2019. They update ratings
 
 | Data | 2021–22 (decision) | 2023 – Jan 2026 | Forward |
 |---|---:|---:|---:|
-| tour_only | 0.6059 | 0.6205 | 0.6175 |
-| with_challenger_k2.0 | 0.5998 | 0.6078 | 0.6062 |
-| with_challenger_k1.5 | 0.5989 | 0.6075 | 0.6058 |
-| with_challenger_k1.0 | 0.5990 | 0.6080 | 0.6061 |
-| with_challenger_k0.5 | 0.6007 | 0.6102 | 0.6079 |
-| with_challenger_k1.5_qualifying_k0.5 | 0.5988 | 0.6077 | 0.6055 |
-| with_challenger_k1.5_qualifying_k0.25 | 0.5987 | 0.6079 | 0.6056 |
+| tour_only | 0.6059 | 0.6205 | 0.6177 |
+| with_challenger_k2.0 | 0.5998 | 0.6078 | 0.6067 |
+| with_challenger_k1.5 | 0.5989 | 0.6075 | 0.6061 |
+| with_challenger_k1.0 | 0.5990 | 0.6080 | 0.6064 |
+| with_challenger_k0.5 | 0.6007 | 0.6102 | 0.6082 |
+| with_challenger_k1.5_qualifying_k0.5 | 0.5988 | 0.6077 | 0.6058 |
+| with_challenger_k1.5_qualifying_k0.25 | 0.5987 | 0.6079 | 0.6060 |
 
 Log loss of the served blend; lower is better.
 
@@ -68,7 +68,7 @@ The Markov chain also predicts how a match is won. Its point probabilities are a
 |---|---:|---:|---:|---:|---:|---:|---:|
 | validation | 14,180 | 0.590 | 0.605 | 0.6593 | 0.526 | 0.488 | 0.488 |
 | test | 18,438 | 0.588 | 0.605 | 0.6527 | 0.522 | 0.484 | 0.481 |
-| forward | 2,486 | 0.590 | 0.601 | 0.6564 | 0.536 | 0.497 | 0.507 |
+| forward | 2,493 | 0.590 | 0.601 | 0.6565 | 0.537 | 0.497 | 0.508 |
 | serve_return_only_test | 18,438 | 0.604 | 0.605 | 0.6569 | 0.505 | – | 0.481 |
 | independent_points_test | 18,438 | 0.553 | 0.605 | 0.6705 | 0.560 | – | 0.481 |
 
@@ -82,7 +82,7 @@ Greedy selection on validation of a logistic layer over the served probability. 
 |---|---:|---:|---:|---:|
 | test | 18,937 | 0.6056 | 0.5994 | 0.0062 ± 0.0008 |
 | test_2023_on | 9,165 | 0.6079 | 0.6020 | 0.0060 ± 0.0012 |
-| forward | 2,543 | 0.6056 | 0.5993 | 0.0063 ± 0.0024 |
+| forward | 2,552 | 0.6060 | 0.5998 | 0.0062 ± 0.0024 |
 
 ## Walk-forward refit of the context layer
 
@@ -92,7 +92,7 @@ The layer's weights refit each January on the previous years only, against weigh
 |---|---:|---:|---:|---:|
 | test | 18,937 | 0.5994 | 0.5997 | -0.0003 ± 0.0004 |
 | test_2023_on | 9,165 | 0.6020 | 0.6019 | 0.0000 ± 0.0007 |
-| forward | 2,543 | 0.5993 | 0.5970 | 0.0023 ± 0.0008 |
+| forward | 2,552 | 0.5998 | 0.5974 | 0.0023 ± 0.0008 |
 
 Lower is better for Brier, log loss and ECE (expected calibration error, 10 bins). Market comparison: see `docs/markets.md`.
 
