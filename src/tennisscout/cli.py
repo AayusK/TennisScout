@@ -7,7 +7,8 @@ import json
 import sys
 from pathlib import Path
 
-from . import api_tennis, audit, backtest, db, ingest_api_tennis, ingest_charting, ingest_tml, markets, predict, report, sources, venues
+from . import (api_tennis, audit, backtest, charting_stats, court_speed, db, ingest_api_tennis, ingest_charting, ingest_tml,
+               markets, predict, report, sources, venues)
 
 
 def _conn():
@@ -31,6 +32,7 @@ def cmd_ingest(args) -> None:
         ingest_api_tennis.ingest(conn)
     else:
         print("no API-Tennis data; run `tennisscout fetch-api-tennis` to add 2026 and Challenger results")
+    print("court speed", json.dumps(court_speed.compute(conn)))
     try:
         mcp = sources.load_snapshot("mcp")
     except FileNotFoundError:
@@ -38,6 +40,7 @@ def cmd_ingest(args) -> None:
         return
     out = ingest_charting.ingest(conn, mcp)
     print(json.dumps({k: out[k] for k in ("charts", "link_status", "final_player_status")}, indent=2))
+    print("charting stat lines", json.dumps(charting_stats.ingest(conn, mcp)))
 
 
 def cmd_backtest(args) -> None:
@@ -109,12 +112,6 @@ def cmd_predict(args) -> None:
     if args.json:
         print(json.dumps(res.to_dict(), indent=2))
         return
-    if args.card:
-        from . import card
-        with open(args.card, "w") as f:
-            f.write(card.card(conn, res.to_dict(), args.event))
-        print(f"wrote {args.card}")
-        return
     if args.report:
         from . import scouting
         try:
@@ -140,6 +137,77 @@ def cmd_predict(args) -> None:
         print(f"  ! {c}")
 
 
+def _event(conn, args, name=None, on=None, surface=None, indoor=None, best_of=None, rnd=None):
+    from datetime import date
+
+    from . import matchup
+
+    return matchup.find_event(conn, name or args.event or "", on or (date.fromisoformat(args.date) if args.date else date.today()),
+                              surface or args.surface, indoor if indoor is not None else args.indoor, best_of or args.best_of,
+                              rnd or args.round)
+
+
+def _write_card(conn, d: dict, template: str, out: Path, notes: dict | None, png: bool) -> None:
+    from . import card
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    page = card.render(d, template, notes)
+    out.write_text(page, encoding="utf-8")
+    print(f"wrote {out}")
+    if png:
+        card.png(page, str(out.with_suffix(".png")))
+        print(f"wrote {out.with_suffix('.png')}")
+
+
+def cmd_card(args) -> None:
+    from . import matchup
+
+    conn = _conn()
+    ev = _event(conn, args)
+    notes = json.loads(Path(args.notes).read_text()) if args.notes else None
+    try:
+        d = matchup.build(conn, args.player_a, args.player_b, ev, quotes=None if args.no_market else matchup.kalshi(conn))
+    except predict.AmbiguousPlayer as e:
+        print(f"{e.query!r} is ambiguous; pass one of these IDs instead:", file=sys.stderr)
+        for c in e.candidates:
+            print(f"  {c['player_id']}  {c['name']} ({c['ioc']}, born {c['birthdate']}, last match {c['last_match']})", file=sys.stderr)
+        sys.exit(2)
+    except predict.UnknownPlayer as e:
+        print(f"unknown player {e}", file=sys.stderr)
+        sys.exit(2)
+    if args.json:
+        print(json.dumps(d, indent=2, default=str))
+        return
+    out = Path(args.out or f"data/out/cards/{d['players'][0]['short']}-v-{d['players'][1]['short']}-{args.template}.html".replace(" ", "_"))
+    _write_card(conn, d, args.template, out, notes, args.png)
+
+
+def cmd_cards(args) -> None:
+    """A card for every scheduled ATP match in the next days (API-Tennis), plus an index page."""
+    from datetime import date
+
+    from . import card, matchup, profiles, upcoming
+
+    conn = _conn()
+    rows = upcoming.upcoming(conn, args.days)
+    pool = profiles.build_pool(conn, date.today())
+    quotes = None if args.no_market else matchup.kalshi(conn)
+    out_dir = Path(args.out_dir)
+    links = []
+    for r in rows:
+        if "error" in r:
+            links.append((r, None))
+            continue
+        ev = matchup.find_event(conn, r["tournament"], date.fromisoformat(r["start"][:10]), r["surface"], r["indoor"], r["best_of"], r["round"])
+        d = matchup.build(conn, r["player_a_id"], r["player_b_id"], ev, quotes=quotes, pool=pool)
+        name = f"{r['start'][:10]}-{d['players'][0]['short']}-v-{d['players'][1]['short']}".replace(" ", "_")
+        for t in args.templates.split(","):
+            _write_card(conn, d, t, out_dir / f"{name}-{t}.html", None, args.png)
+        links.append((r, name))
+    (out_dir / "index.html").write_text(card.index_page(links, args.templates.split(",")), encoding="utf-8")
+    print(f"wrote {out_dir / 'index.html'}")
+
+
 def cmd_search(args) -> None:
     for r in predict.search(_conn(), args.query, limit=args.limit):
         print(f"{r.player_id}  {r.name:30s} {r.ioc or '':4s} born {r.birthdate or '?':9s} last {r.last_match or '-':10s} {r.matches} matches")
@@ -149,6 +217,7 @@ def cmd_fetch_api_tennis(args) -> None:
     from datetime import date
 
     print("tournaments", api_tennis.fetch_tournaments())
+    print("standings", api_tennis.fetch_standings())
     api_tennis.fetch_fixtures("atp", date(2026, 1, 1), date.today())
     api_tennis.fetch_fixtures("challenger", date(2019, 1, 1), date.today())
     print("player lists fetched", api_tennis.fetch_players())
@@ -200,12 +269,34 @@ def main(argv: list[str] | None = None) -> None:
     pr.add_argument("player_b")
     pr.add_argument("--surface", default="Hard", choices=["Hard", "Clay", "Grass", "Carpet"])
     pr.add_argument("--indoor", action="store_true")
-    pr.add_argument("--card", metavar="FILE.html", help="write an HTML matchup card instead of printing")
-    pr.add_argument("--event", help="event line for the card, e.g. 'Paris Masters · R32'")
     pr.add_argument("--best-of", type=int, default=3, choices=[3, 5])
     pr.add_argument("--json", action="store_true")
     pr.add_argument("--report", action="store_true", help="LLM scouting report from the prediction (needs ANTHROPIC_API_KEY)")
     pr.set_defaults(func=cmd_predict)
+
+    c = sub.add_parser("card", help="HTML matchup card (style, court speed, key questions, blend) for two players")
+    c.add_argument("player_a")
+    c.add_argument("player_b")
+    c.add_argument("--event", help="tournament name, e.g. 'Paris Masters': sets surface, roof, court speed and history")
+    c.add_argument("--date", help="match date (YYYY-MM-DD), default today")
+    c.add_argument("--round", help="round label shown on the card, e.g. R32")
+    c.add_argument("--surface", choices=["Hard", "Clay", "Grass", "Carpet"], help="override the event's surface")
+    c.add_argument("--indoor", action="store_true", default=None, help="override: indoors")
+    c.add_argument("--best-of", type=int, choices=[3, 5])
+    c.add_argument("--template", default="matchup", choices=["matchup", "tiebreak", "aura"])
+    c.add_argument("--notes", help="aura template: JSON file with your editorial (meters, receipts, the read)")
+    c.add_argument("--out", help="output .html path (default data/out/cards/...)")
+    c.add_argument("--png", action="store_true", help="also write a PNG next to the HTML (needs Playwright)")
+    c.add_argument("--json", action="store_true", help="print the card payload instead of writing HTML")
+    c.add_argument("--no-market", action="store_true", help="skip the Kalshi price lookup")
+    c.set_defaults(func=cmd_card)
+    cs = sub.add_parser("cards", help="cards for every scheduled ATP match (needs API_TENNIS_KEY), plus an index page")
+    cs.add_argument("--days", type=int, default=1)
+    cs.add_argument("--templates", default="matchup,tiebreak", help="comma-separated: matchup,tiebreak,aura")
+    cs.add_argument("--out-dir", default="data/out/cards")
+    cs.add_argument("--png", action="store_true")
+    cs.add_argument("--no-market", action="store_true")
+    cs.set_defaults(func=cmd_cards)
 
     s = sub.add_parser("search", help="find players by name")
     s.add_argument("query")

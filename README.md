@@ -51,7 +51,15 @@ API_TENNIS_KEY=... tennisscout upcoming --days 2   # scheduled ATP matches: serv
 ```
 
 ```bash
-tennisscout serve          # FastAPI on :8000 — /predict, /upcoming, /players/search, /backtest, /health
+tennisscout card "Matteo Berrettini" "Ugo Humbert" --event "Paris Masters" --round R32   # HTML scouting card -> data/out/cards/
+```
+
+```bash
+API_TENNIS_KEY=... tennisscout cards --days 1 --templates matchup,tiebreak   # a card for every scheduled ATP match + index.html
+```
+
+```bash
+tennisscout serve          # FastAPI on :8000 — /predict, /card, /cards, /upcoming, /players/search, /backtest, /health
 ```
 
 ```bash
@@ -68,6 +76,34 @@ pytest                     # tests on synthetic fixtures; no real data or networ
 
 Ambiguous names are refused rather than guessed. `tennisscout predict Zverev Sinner` lists the
 three Zverevs with their internal IDs, and you pass one (`P007638`) instead.
+
+## Scouting cards
+
+`tennisscout card` (and `GET /card`) renders one match as a self-contained, 1200 px wide HTML page
+laid out like a shareable report graphic; `--png` also writes a screenshot (needs `pip install playwright`).
+Three templates share one payload (`tennisscout card ... --json` prints it):
+
+| Template | What it shows |
+|---|---|
+| `matchup` (default) | Style radars, archetype and tags, gravity, the showdown, two key questions, record against this style, the court, head to head, the blend |
+| `tiebreak` | Three-set and tiebreak rates at this court speed, the tiebreak file (last five each), going the distance, court speed by edition, model totals |
+| `aura` | Tale of the tape plus an editorial layer you write (`--notes notes.json`: `{"a": {"meter": 95, "meter_label": "FULL AURA", "tagline": "...", "receipts": ["**Bold lead.** detail", ...]}, "b": {..., "tone": "cringe"}, "read": "...", "kill": "..."}`); without notes the receipts come from the data. Labelled "Vibes-based. Not in the model." |
+
+Where the numbers come from:
+
+* **Win chance**: the served model, exactly as `/predict` returns it. Nothing on the card changes it.
+* **Court speed** (`court_speed.py`): per tournament edition, serve points won and aces beyond what the
+  same players manage elsewhere that season (player-season effects, ridge-shrunk toward the event's
+  previous editions). 50 is the average tour event and 15 points is one standard deviation; this week's
+  edition is used once it has results, else the event's last three editions.
+* **Style** (`profiles.py`): serve and return ranks from the opponent-adjusted serve/return ratings;
+  power, consistency, grind, variety, net, wings, rally length and first-serve outcomes from Match Charting
+  Project stat lines (`charting_stats.py`) in the last three years, each shrunk toward the pool average.
+  Ranks are percentiles among men with 5+ charted matches. Archetypes and tags are written-out rules on
+  those ranks. Gravity is a two-way fit of short-point share (1–3 shots) on court speed and both players.
+* **Expected wins** (form, against this style): the served model's stored pre-match predictions.
+* **The Blend** is a description, not a validated model: the served chance plus a court tilt, from
+  this court's share of short points and both men's short-point and rally win rates, through the Markov chain.
 
 ## Scheduled jobs (GitHub Actions, run from the default branch)
 
@@ -99,6 +135,10 @@ src/tennisscout/
   weather.py          Open-Meteo reanalysis + archived-forecast client
   markets.py          Kalshi/Polymarket listings, parsers, price history, raw order-book archiver
   report.py           renders docs/backtest.md and docs/data-audit.md
+  court_speed.py      court speed index per tournament edition (serve points won and aces beyond the players' usual)
+  charting_stats.py   Match Charting Project per-match stat tables -> per-player lines
+  profiles.py         style ranks, archetypes, tags, gravity and phase rates for the cards
+  matchup.py          everything one scouting card shows; card.py renders it (matchup, tiebreak, aura templates)
   schema.sql          SQLite DDL kept Postgres-compatible (Supabase later)
 metadata/venues.csv        hand-written venue seed, versioned by year (UNVERIFIED, tagged as such)
 metadata/player_aliases.csv  reviewed name -> ATP ID aliases (empty; audit lists candidates)

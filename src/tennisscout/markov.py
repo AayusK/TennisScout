@@ -164,6 +164,63 @@ def set_scores(pa: float, pb: float, best_of: int = 3, final_rule: tuple | None 
     return {"2-0": s * s, "2-1": 2 * s * q * f, "1-2": 2 * s * q * (1 - f), "0-2": q * q}
 
 
+def set_games(pa: float, pb: float, a_serves_first: bool = True) -> dict[tuple[int, int], float]:
+    """Distribution of a standard set's final games score (A's games, B's games), tiebreak at 6-6.
+
+    Who serves first matters for the score (not for who wins the set), so it is a parameter.
+    """
+    ha, hb = hold(pa), hold(pb)
+    out: dict[tuple[int, int], float] = {}
+    prob = {(0, 0): 1.0}
+    for total in range(12):
+        for i in range(max(0, total - 6), min(total, 6) + 1):
+            j = total - i
+            m = prob.pop((i, j), 0.0)
+            if not m:
+                continue
+            a_serving = (total % 2 == 0) == a_serves_first
+            p_game = ha if a_serving else 1 - hb
+            for di, pg in ((1, p_game), (0, 1 - p_game)):
+                ni, nj = i + di, j + 1 - di
+                if (ni >= 6 and ni - nj >= 2) or (nj >= 6 and nj - ni >= 2):
+                    out[(ni, nj)] = out.get((ni, nj), 0.0) + m * pg
+                else:
+                    prob[(ni, nj)] = prob.get((ni, nj), 0.0) + m * pg
+    m66 = prob.pop((6, 6), 0.0)
+    if m66:
+        # A serves the tiebreak's first point when A served the set's first game (game 13 is odd).
+        t = tiebreak(pa, pb) if a_serves_first else 1 - tiebreak(pb, pa)
+        out[(7, 6)] = out.get((7, 6), 0.0) + m66 * t
+        out[(6, 7)] = out.get((6, 7), 0.0) + m66 * (1 - t)
+    return out
+
+
+def games_distribution(pa: float, pb: float, best_of: int = 3) -> dict[int, float]:
+    """Distribution of total games in the match, every set played as a standard tiebreak set.
+
+    The receiver of a set's last game serves the next set first, so the server alternates with the
+    parity of each set's games. Deciding-set formats that end in a long tiebreak count it as one game,
+    as standard scoring does, so they fit this shape too; advantage deciders are approximated by it.
+    """
+    need = best_of // 2 + 1
+    sets = {first: set_games(pa, pb, first) for first in (True, False)}
+    states = {(0, 0, True, 0): 1.0}  # (sets A, sets B, A serves first in this set, games so far)
+    done: dict[int, float] = {}
+    while states:
+        nxt: dict[tuple, float] = {}
+        for (sa, sb, first, g), m in states.items():
+            for (ga, gb), q in sets[first].items():
+                na, nb = sa + (ga > gb), sb + (gb > ga)
+                total = g + ga + gb
+                if na == need or nb == need:
+                    done[total] = done.get(total, 0.0) + m * q
+                else:
+                    key = (na, nb, first if (ga + gb) % 2 == 0 else not first, total)
+                    nxt[key] = nxt.get(key, 0.0) + m * q
+        states = nxt
+    return done
+
+
 def final_set_rule(level: str | None, tourney: str | None, year: int, best_of: int | None, next_gen: bool = True):
     """Deciding-set format by event and year."""
     t = (tourney or "").lower()

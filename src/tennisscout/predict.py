@@ -218,14 +218,21 @@ def predict(
         target = components.get(served, components["elo_sr_blend"])
         d0 = markov.implied_shift(*sr.point_probs(a.player_id, b.player_id, surface, io), target, best_of, rule, sr.form_nodes())
         dist: dict[str, float] = {}
+        games: dict[int, float] = {}
         tiebreaks = 0.0
         for d, w in sr.form_nodes():
             qa, qb = sr.point_probs(a.player_id, b.player_id, surface, io, d0 + d)
             for k, v in markov.set_scores(qa, qb, best_of, rule).items():
                 dist[k] = dist.get(k, 0.0) + w * v
+            for k, v in markov.games_distribution(qa, qb, best_of).items():
+                games[k] = games.get(k, 0.0) + w * v
             sets = sum(v * sum(map(int, k.split("-"))) for k, v in markov.set_scores(qa, qb, best_of, rule).items())
             tiebreaks += w * sets * markov.reach_tiebreak(qa, qb)
         components["set_scores"] = dist
+        components["games_distribution"] = {k: games[k] for k in sorted(games)}
+        components["expected_games"] = sum(k * v for k, v in games.items())
+        # Serve-point chances moved so the Markov chain reproduces the served win probability (no form shift).
+        components["anchored_point_win"] = list(sr.point_probs(a.player_id, b.player_id, surface, io, d0))
         components["expected_tiebreaks"] = tiebreaks * json.loads(db.get_meta(conn, "tiebreak_scale") or "1")
     serving = db.get_meta(conn, "serving_model", "elo_selected")
     serving = serving if serving in components else "elo_selected"

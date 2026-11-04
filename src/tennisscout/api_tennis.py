@@ -69,6 +69,13 @@ def fetch_fixtures(kind: str, start: date, end: date, refresh_days: int = 10, lo
     return n
 
 
+def fetch_standings() -> int:
+    """Current ATP standings (rank and points); the card shows the live rank from here."""
+    result = _call("get_standings", event_type="ATP")
+    _store(RAW / "standings.json.gz", {"event_type": "ATP"}, result)
+    return len(result)
+
+
 def fetch_tournaments() -> int:
     result = _call("get_tournaments")
     _store(RAW / "tournaments.json.gz", {}, result)

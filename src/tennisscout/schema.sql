@@ -199,3 +199,30 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Match Charting Project per-match stat lines, one per (chart, resolved player): see charting_stats.py
+-- for the count names. Only charts whose player name resolved to one internal ID get a line.
+CREATE TABLE IF NOT EXISTS charting_line (
+    mcp_match_id TEXT NOT NULL,
+    player_id    TEXT NOT NULL,
+    opponent_id  TEXT,
+    match_date   TEXT,
+    surface      TEXT,
+    match_id     TEXT,              -- linked tour match, when the chart linked to one
+    counts_json  TEXT NOT NULL,
+    PRIMARY KEY (mcp_match_id, player_id)
+);
+CREATE INDEX IF NOT EXISTS charting_line_player ON charting_line(player_id);
+
+-- Court speed per tournament edition (court_speed.py): 50 = average tour-level edition, 15 = one SD.
+CREATE TABLE IF NOT EXISTS edition_speed (
+    edition_id   TEXT PRIMARY KEY,
+    event_key    TEXT NOT NULL,     -- groups one event's editions across sources (TML and API-Tennis)
+    year         INTEGER NOT NULL,
+    surface      TEXT,
+    indoor       TEXT,
+    speed        REAL NOT NULL,
+    spw_effect   REAL NOT NULL,     -- logit: serve points won beyond the players' usual
+    ace_effect   REAL NOT NULL,     -- log rate: aces beyond the players' usual
+    n_lines      INTEGER NOT NULL   -- serve stat lines behind it
+);

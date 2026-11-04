@@ -90,6 +90,25 @@ def _stat(stats: list, player_key: int, name: str) -> tuple[int, int] | None:
     return None
 
 
+def _count(stats: list, player_key: int, name: str) -> int | None:
+    """A match-level stat given as a bare count ("Aces": "4")."""
+    for s in stats or ():
+        if s.get("player_key") == player_key and s.get("stat_period") == "match" and s.get("stat_name") == name:
+            v = str(s.get("stat_value") or "").strip()
+            return int(v) if v.isdigit() else None
+    return None
+
+
+def _serve_extra(stats, player_key) -> tuple[int | None, ...]:
+    """(aces, double faults, service games, break points saved, break points faced), TML's other serve columns."""
+    games, bp = _stat(stats, player_key, "Service games won"), _stat(stats, player_key, "Break Points Saved")
+    if bp is None:  # a 0/0 line has no stat_total; it still means no break point was faced
+        bp = next(((0, 0) for s in stats or () if s.get("player_key") == player_key and s.get("stat_period") == "match"
+                   and s.get("stat_name") == "Break Points Saved" and s.get("stat_won") == 0), None)
+    return (_count(stats, player_key, "Aces"), _count(stats, player_key, "Double Faults"),
+            games[1] if games else None, bp[0] if bp else None, bp[1] if bp else None)
+
+
 def _serve(stats, player_key) -> tuple[int | None, ...]:
     """(serve points, 1st serve in, 1st serve won, 2nd serve won), TML's columns, from the match stat lines."""
     first, second = _stat(stats, player_key, "1st serve points won"), _stat(stats, player_key, "2nd serve points won")
@@ -224,6 +243,7 @@ def ingest(conn: sqlite3.Connection, registry_dir: Path | None = None, log=print
             rnd = "Q" if f.get("event_qualification") == "True" else ROUNDS.get((f.get("tournament_round") or "").split(" - ")[-1].strip().lower())
             w_sv, w_in, w_1st, w_2nd = _serve(f.get("statistics"), wk)
             l_sv, l_in, l_1st, l_2nd = _serve(f.get("statistics"), lk)
+            w_x, l_x = _serve_extra(f.get("statistics"), wk), _serve_extra(f.get("statistics"), lk)
             start = f"{f['event_date']}T{f['event_time']}:00Z" if f.get("event_time") else None
             mid = mreg.get_or_mint("api_tennis", str(f["event_key"]), collected_at)
             best_of = 5 if (slam and rnd != "Q") else 3
@@ -236,6 +256,8 @@ def ingest(conn: sqlite3.Connection, registry_dir: Path | None = None, log=print
                 "surface": surface, "indoor": None, "level": level,
                 "w_svpt": w_sv, "w_1stin": w_in, "w_1stwon": w_1st, "w_2ndwon": w_2nd,
                 "l_svpt": l_sv, "l_1stin": l_in, "l_1stwon": l_1st, "l_2ndwon": l_2nd,
+                **{f"{side}_{col}": v for side, x in (("w", w_x), ("l", l_x))
+                   for col, v in zip(("ace", "df", "svgms", "bpsaved", "bpfaced"), x)},
                 "event_date_lo": f["event_date"], "event_date_hi": f["event_date"], "start_time": start,
                 "event_time_precision": "minute" if start else "day", "published_at": None, "collected_at": collected_at,
                 "available_at": f"{f['event_date']}T23:59:59Z", "availability_basis": "event_date_upper_bound",
