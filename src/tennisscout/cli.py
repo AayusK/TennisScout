@@ -109,6 +109,12 @@ def cmd_predict(args) -> None:
     if args.json:
         print(json.dumps(res.to_dict(), indent=2))
         return
+    if args.card:
+        from . import card
+        with open(args.card, "w") as f:
+            f.write(card.card(conn, res.to_dict(), args.event))
+        print(f"wrote {args.card}")
+        return
     if args.report:
         from . import scouting
         try:
@@ -194,6 +200,8 @@ def main(argv: list[str] | None = None) -> None:
     pr.add_argument("player_b")
     pr.add_argument("--surface", default="Hard", choices=["Hard", "Clay", "Grass", "Carpet"])
     pr.add_argument("--indoor", action="store_true")
+    pr.add_argument("--card", metavar="FILE.html", help="write an HTML matchup card instead of printing")
+    pr.add_argument("--event", help="event line for the card, e.g. 'Paris Masters · R32'")
     pr.add_argument("--best-of", type=int, default=3, choices=[3, 5])
     pr.add_argument("--json", action="store_true")
     pr.add_argument("--report", action="store_true", help="LLM scouting report from the prediction (needs ANTHROPIC_API_KEY)")

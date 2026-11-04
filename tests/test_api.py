@@ -81,3 +81,9 @@ def test_upcoming_rows(client, loaded):
     assert 0 < out[0]["p_a"] < 1 and out[0]["player_a_id"] == a
     assert out[1]["error"] == "player not in the registry yet" and "p_a" not in out[1]
     assert abs(out[0]["kalshi_p_a"] - 0.61) < 1e-9 and "kalshi_p_a" not in out[1]
+
+
+def test_card_html(client):
+    r = client.get("/card", params={"a": "Alex Alpha", "b": "Ben Beta", "event": "Test Open · R32"})
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+    assert "Alpha" in r.text and "Beta" in r.text and "Test Open" in r.text and "THE SHOWDOWN" in r.text

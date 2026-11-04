@@ -6,6 +6,7 @@ Endpoints:
     GET /health
     GET /players/search?q=sinner
     GET /predict?a=Jannik%20Sinner&b=Carlos%20Alcaraz&surface=Clay&best_of=5
+    GET /card?a=...&b=...   (HTML matchup card)
     GET /backtest   (headline metrics of the serving model)
 """
 
@@ -14,6 +15,7 @@ from __future__ import annotations
 import json
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import HTMLResponse
 
 from . import db, predict
 
@@ -60,6 +62,21 @@ def predict_match(
         raise HTTPException(404, {"error": "unknown player", "query": str(e)})
     except ValueError as e:
         raise HTTPException(400, {"error": str(e)})
+
+
+@app.get("/card", response_class=HTMLResponse)
+def match_card(
+    a: str = Query(...),
+    b: str = Query(...),
+    surface: str = Query("Hard", pattern="^(Hard|Clay|Grass|Carpet)$"),
+    indoor: bool = False,
+    best_of: int = Query(3, ge=3, le=5),
+    event: str | None = None,
+):
+    from . import card
+
+    pred = predict_match(a, b, surface, indoor, best_of)
+    return card.card(_conn(), pred, event)
 
 
 @app.get("/upcoming")
