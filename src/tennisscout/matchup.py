@@ -32,6 +32,7 @@ from .serve_return import logit, sigmoid
 
 BAND = 10  # "courts like this": same surface and roof, speed within +-BAND
 NOT_TOUR = ("C",)
+TITLE_LEVELS = ("G", "M", "F", "A", "500", "250")  # Slams, Masters, Finals, other tour events
 ROUND_NAMES = {"F": "Final", "SF": "Semis", "QF": "Quarters", "R16": "R16", "R32": "R32", "R64": "R64", "R128": "R128",
                "RR": "Round robin", "Q": "Qualifying", "BR": "Bronze"}
 SLAM_ROUNDS = [("W", "Title"), ("F", "Final"), ("SF", "Semis"), ("QF", "Quarters"), ("R16", "4th round"),
@@ -40,6 +41,12 @@ PARTICLES = {"de", "da", "di", "del", "della", "van", "von", "der", "den", "du",
 
 
 # --------------------------------------------------------------------------------------------- helpers
+
+def event_display(name: str) -> str:
+    """API-Tennis event names carry a country and sometimes a stray "- Qualification" on main-draw rounds."""
+    name = re.sub(r"\s*\([^)]*\)", "", name or "")
+    return re.sub(r"\s*-\s*Qualification$", "", name).strip()
+
 
 def short_name(conn: sqlite3.Connection, pid: str, display: str) -> str:
     """The surname a scoreboard uses. API-Tennis writes "A. De Minaur", "T. M. Etcheverry": its most
@@ -54,7 +61,9 @@ def short_name(conn: sqlite3.Connection, pid: str, display: str) -> str:
     if names:
         toks = [t for t in names.most_common(1)[0][0].split() if not t.endswith(".")]
         if toks:
-            return " ".join(toks)
+            short = " ".join(toks)
+            tail = (display or "")[-len(short):]
+            return tail if tail.lower() == short.lower() else short  # keep "van de Zandschulp" casing
     toks = (display or "?").split()
     out = [toks[-1]]
     for t in reversed(toks[1:-1]):
@@ -90,17 +99,28 @@ def since_label(d: date) -> str:
     return d.strftime("%b %Y")
 
 
+def where(event: str) -> str:
+    """'in Paris' for the Paris Masters, 'at the US Open', 'at Wimbledon', 'at the Tour Finals'."""
+    if event.endswith(" Masters"):
+        return f"in {event[:-len(' Masters')]}"
+    if event.endswith(("Open", "Finals", "Cup", "Games")):
+        return f"at the {event}"
+    if event in ("Wimbledon", "Roland Garros"):
+        return f"at {event}"
+    return f"in {event}"
+
+
 def _rank_words(p: float) -> str:
     if p >= 90:
         return "ranks among the tour's best"
     if p >= 75:
         return "ranks well above the tour average"
     if p >= 60:
-        return "is above the tour average"
+        return "ranks above the tour average"
     if p > 40:
-        return "sits around the tour average"
+        return "ranks around the tour average"
     if p > 25:
-        return "is below the tour average"
+        return "ranks below the tour average"
     if p > 10:
         return "ranks near the bottom of the tour"
     return "ranks among the tour's weakest"
@@ -146,6 +166,7 @@ def find_event(conn: sqlite3.Connection, name: str, on: date, surface: str | Non
                best_of: int | None = None, rnd: str | None = None) -> Event:
     """The edition being played on ``on`` (or the event's latest one) and its court speed."""
     keys_of = court_speed.event_keys(conn)
+    tml_ids = {r[0] for r in conn.execute("SELECT edition_id FROM tournament_edition WHERE snapshot_id != 'api_tennis'")}
     variants = _name_variants(name)
     eds = conn.execute("SELECT edition_id, name, year, start_date, end_date_bound, surface, indoor, level FROM tournament_edition").fetchall()
     keys = {keys_of.get(r["edition_id"]) for r in eds if norm_name(r["name"]) in variants}
@@ -157,7 +178,9 @@ def find_event(conn: sqlite3.Connection, name: str, on: date, surface: str | Non
                 (date.fromisoformat(r["end_date_bound"] or r["start_date"]) + timedelta(days=10)).isoformat():
             current = r
     ref = current or (family[-1] if family else None)
-    ev = Event(name=name, date=on.isoformat(), round=rnd)
+    # Show the event's TML name ("Paris Masters") when API-Tennis calls it something shorter ("Paris").
+    tml = [r for r in family if r["edition_id"] in tml_ids]
+    ev = Event(name=event_display(tml[-1]["name"] if tml else name), date=on.isoformat(), round=rnd)
     if ref:
         ev.surface = surface or ref["surface"] or "Hard"
         ev.indoor = indoor if indoor is not None else (ref["indoor"] == "I")
@@ -279,7 +302,7 @@ def matches(conn: sqlite3.Connection, pid: str, since: date | None = None, until
             return (g, s, f) if (g and g > 0 and s is not None and f is not None and 0 <= s <= f and f - s <= g) else None
 
         w_sv, l_sv = sv(r[18], r[19], r[20]), sv(r[21], r[22], r[23])
-        out.append(M(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], won,
+        out.append(M(r[0], r[1], r[2], event_display(r[3]), r[4], r[5], r[6], r[7], r[8], r[9], r[10], won,
                      r[12] if won else r[11], (r[14] if won else r[13]) or "?", r[15] or "", r[16], r[17],
                      w_sv if won else l_sv, l_sv if won else w_sv, (keys_of or {}).get(r[4], r[24])))
     return out
@@ -330,7 +353,7 @@ def player_facts(conn: sqlite3.Connection, pid: str, live: dict[str, dict], all_
                              UNION ALL SELECT m.loser_rank, COALESCE(m.event_date_lo, e.start_date), m.seq FROM match m
                                JOIN tournament_edition e USING (edition_id) WHERE m.loser_id = ? AND m.loser_rank > 0)
            ORDER BY d DESC LIMIT 1""", (pid, pid)).fetchone()
-    titles = sum(1 for m in all_ms if m.won and m.round == "F" and (m.level or "") in ("G", "M", "A", "F"))
+    titles = sum(1 for m in all_ms if m.won and m.round == "F" and (m.level or "") in TITLE_LEVELS)
     best = None
     for code, label in SLAM_ROUNDS:
         hit = [m for m in all_ms if m.level == "G" and m.round != "Q" and
@@ -356,7 +379,7 @@ def player_facts(conn: sqlite3.Connection, pid: str, live: dict[str, dict], all_
 
 # --------------------------------------------------------------------------------------------- sections
 
-def form(conn: sqlite3.Connection, pid: str, ms: list[M], n: int = 8) -> dict:
+def form(conn: sqlite3.Connection, pid: str, ms: list[M], n: int = 8, names=None) -> dict:
     tour = [m for m in ms if m.tour][:40]
     pred = predictions(conn, [m.match_id for m in tour])
     scored = [m for m in tour if m.match_id in pred][:n]
@@ -365,7 +388,8 @@ def form(conn: sqlite3.Connection, pid: str, ms: list[M], n: int = 8) -> dict:
     last = ms[0] if ms else None
     retired = None
     if last and last.outcome == "retired" and not last.won:
-        retired = {"event": last.event, "round": last.round, "opp": last.opp_name, "date": last.date}
+        retired = {"event": last.event, "round": last.round, "opp": names(last.opp_id, last.opp_name) if names else last.opp_name,
+                   "date": last.date}
     return {"w": w, "l": l, "n": len(scored), "expected": exp, "retired_last": retired}
 
 
@@ -408,6 +432,7 @@ def head_to_head(conn: sqlite3.Connection, a: str, a_ms: list[M], b: str) -> dic
     for m in meet:
         out["meetings"].append({"date": m.date, "year": m.year, "event": m.event, "round": m.round, "surface": m.surface,
                                 "indoor": m.indoor, "speed": m.speed, "a_won": m.won, "score": m.score,
+                                "retired": m.outcome == "retired",
                                 "a_sets": [fmt_set(s) for s in m.my_sets], "best_of": m.best_of})
     return out
 
@@ -554,6 +579,27 @@ def against_style(conn, pid: str, ms: list[M], groups: list[dict], since: date, 
     return out
 
 
+def speed_tag(conn: sqlite3.Connection, pid: str, ms: list[M], since: date) -> dict | None:
+    """'Fast-court riser' / 'Slow-court riser': wins above the model's expectation per match on fast courts
+    (SPEED 60+) against slow ones (under 45), tour level, when the gap is at least 0.08 and z >= 1.64."""
+    window = [m for m in ms if m.date >= since.isoformat() and m.tour and m.speed is not None]
+    pred = predictions(conn, [m.match_id for m in window])
+    groups = {"fast": [m for m in window if m.speed >= 60], "slow": [m for m in window if m.speed < 45]}
+    stats = {}
+    for k, g in groups.items():
+        g = [m for m in g if m.match_id in pred]
+        if len(g) < 10:
+            return None
+        ps = [expected_for(pred, m.match_id, pid) for m in g]
+        stats[k] = (sum(m.won for m in g) - sum(ps)) / len(g), sum(p * (1 - p) for p in ps) / len(g) ** 2, len(g)
+    diff = stats["fast"][0] - stats["slow"][0]
+    z = diff / math.sqrt(stats["fast"][1] + stats["slow"][1])
+    if abs(diff) < 0.08 or abs(z) < 1.64:
+        return None
+    return {"tag": "Fast-court riser" if diff > 0 else "Slow-court riser", "diff": diff, "z": z,
+            "n_fast": stats["fast"][2], "n_slow": stats["slow"][2]}
+
+
 def court_tilt(pool: profiles.Pool, pa_: profiles.Profile, pb_: profiles.Profile, ev: Event, pred: dict,
                conn: sqlite3.Connection) -> dict | None:
     """How this court's speed moves the served chance, through each man's short-point and rally rates."""
@@ -670,18 +716,22 @@ def showdown(A: dict, B: dict, qs: list[dict], p_a: float, ev: Event, tilt: dict
     H, L = sides[hi["side"]], sides[lo["side"]]
     hi_what, lo_what = hi["what"], lo["what"]
     if abs(hi["rank"] - lo["rank"]) < 10:
-        first = f"{A['short']} and {B['short']} meet strength to strength: {hi_what} against {lo_what}, ranked close together."
-    elif lo["rank"] < 40:
+        kind = ("strength against strength" if lo["rank"] >= 60 else "weakness against weakness" if hi["rank"] < 40
+                else "evenly matched")
+        first = f"{H['short']}'s {hi_what} meets {L['short']}'s {lo_what}, {kind}: they rank close together."
+    elif hi["rank"] >= 60 and lo["rank"] < 40:
         first = f"{H['short']}'s {hi_what} {_rank_words(hi['rank'])}, and {L['short']}'s {lo_what} does not."
-    else:
+    elif hi["rank"] >= 60:
         first = f"{H['short']}'s {hi_what} {_rank_words(hi['rank'])}, ahead of {L['short']}'s {lo_what}."
+    else:
+        first = f"{H['short']}'s {hi_what} ({hi['rank']:.0f}) outranks {L['short']}'s {lo_what} ({lo['rank']:.0f}), both below the tour middle."
     if pf < 0.53:
         second = "The model has it close to a coin flip, so that matchup is where it turns."
     elif q["favours"] == fav_side:
         second = f"It is a big part of why {fav['short']} is favored."
     else:
         tag = "slight underdog" if pf < 0.6 else "underdog"
-        second = f"That is the {tag}'s cleanest path in {ev.name}."
+        second = f"That is the {tag}'s cleanest path {where(ev.name)}."
     if tilt and abs(tilt["tilt_a"]) >= 0.01:
         helped = A if tilt["tilt_a"] > 0 else B
         second += f" The {ev.speed_label} court nudges it toward {helped['short']}."
@@ -707,6 +757,10 @@ def build(conn: sqlite3.Connection, a: str, b: str, ev: Event, as_of: date | Non
     a_ms = matches(conn, ida, until=today, keys_of=keys_of)
     b_ms = matches(conn, idb, until=today, keys_of=keys_of)
     A, B = player_facts(conn, ida, live, a_ms), player_facts(conn, idb, live, b_ms)
+    for pr_, pid, ms in ((pa_, ida, a_ms), (pb_, idb, b_ms)):
+        tag = speed_tag(conn, pid, ms, since)
+        if tag:
+            pr_.mixed = (pr_.mixed + [tag["tag"]])[-3:]
     qs = key_questions(pa_, pb_, A, B, pool, since)
     tilt = court_tilt(pool, pa_, pb_, ev, pred, conn)
     p_a = pred["p_a"]
@@ -732,7 +786,7 @@ def build(conn: sqlite3.Connection, a: str, b: str, ev: Event, as_of: date | Non
         "tilt": tilt,
         "questions": qs,
         "against": [against_style(conn, ida, a_ms, groups_vs_b, since, ev), against_style(conn, idb, b_ms, groups_vs_a, since, ev)],
-        "form": [form(conn, ida, a_ms), form(conn, idb, b_ms)],
+        "form": [form(conn, ida, a_ms, names=names), form(conn, idb, b_ms, names=names)],
         "tournament_record": [tournament_record(a_ms, ev.event_key), tournament_record(b_ms, ev.event_key)],
         "court": [court_records(a_ms, ev, since), court_records(b_ms, ev, since)],
         "h2h": head_to_head(conn, ida, a_ms, idb),

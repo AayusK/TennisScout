@@ -29,12 +29,18 @@ def kalshi_quotes(conn: sqlite3.Connection) -> dict[frozenset, dict[str, dict]]:
     return {frozenset(v): v for v in by_event.values() if len(v) == 2}
 
 
+def scheduled(f: dict) -> bool:
+    """Not started yet. API-Tennis leaves event_status empty or "1" before the first point; anything else
+    ("Set 1", "Finished", "Retired", "Cancelled", ...) means the match is under way or over."""
+    return not f.get("event_winner") and str(f.get("event_live") or "0") != "1" and (f.get("event_status") or "") in ("", "1")
+
+
 def rows(conn: sqlite3.Connection, fixtures: list[dict], tournaments: dict, quotes: dict | None = None) -> list[dict]:
     ext = {r[0]: r[1] for r in conn.execute("SELECT external_id, player_id FROM player_external_id WHERE source = 'api_tennis'")}
     hist = tml_history(conn)
     out = []
     for f in sorted(fixtures, key=lambda f: (f["event_date"], f.get("event_time") or "")):
-        if f.get("event_winner") or f.get("event_status") or f.get("event_qualification") == "True":
+        if not scheduled(f) or f.get("event_qualification") == "True":
             continue  # finished, live, cancelled or qualifying
         name = _clean_name(f["tournament_name"])
         surface, indoor = _surface(tournaments.get(f["tournament_key"], {}).get("tournament_sourface"))

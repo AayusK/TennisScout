@@ -89,6 +89,9 @@ Three templates share one payload (`tennisscout card ... --json` prints it):
 | `tiebreak` | Three-set and tiebreak rates at this court speed, the tiebreak file (last five each), going the distance, court speed by edition, model totals |
 | `aura` | Tale of the tape plus an editorial layer you write (`--notes notes.json`: `{"a": {"meter": 95, "meter_label": "FULL AURA", "tagline": "...", "receipts": ["**Bold lead.** detail", ...]}, "b": {..., "tone": "cringe"}, "read": "...", "kill": "..."}`); without notes the receipts come from the data. Labelled "Vibes-based. Not in the model." |
 
+The header brand reads `TENNISSCOUT_BRAND` (default `TennisScout`) and an optional `TENNISSCOUT_HANDLE`
+(e.g. `@yourhandle`); both appear on every card.
+
 Where the numbers come from:
 
 * **Win chance**: the served model, exactly as `/predict` returns it. Nothing on the card changes it.

@@ -193,6 +193,8 @@ def cmd_cards(args) -> None:
     pool = profiles.build_pool(conn, date.today())
     quotes = None if args.no_market else matchup.kalshi(conn)
     out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"{len(rows)} scheduled matches")
     links = []
     for r in rows:
         if "error" in r:

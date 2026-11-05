@@ -30,6 +30,7 @@ from . import db
 
 WINDOW_YEARS = 3
 MIN_CHARTS = 5
+MIN_TOUR_MATCHES = 10  # tour-level matches in the last year to count as a tour regular (serve/return ranks)
 AXES = ("Serve", "Power", "Net", "Variety", "Grind", "Consistency", "Return")
 AXIS_HELP = {
     "Serve": "opponent-adjusted serve rating",
@@ -43,7 +44,8 @@ AXIS_HELP = {
 WINGS = {"fxc": "crosscourt forehand", "bxc": "crosscourt backhand", "fdtl": "down-the-line forehand",
          "bdtl": "down-the-line backhand", "fio": "inside-out forehand"}
 
-# name -> (icon, rule over percentiles p and the profile, anchor axis for ordering)
+# name -> (icon, rule over percentiles p and the profile, anchor axis for ordering). When several fit, the
+# highest anchor rank plus PRIORITY wins: serve, return and power define a game more than shot mix does.
 ARCHETYPES = {
     "Big Server": ("🚀", lambda p, x: p["Serve"] >= 80, "Serve"),
     "Returner": ("🛡️", lambda p, x: p["Return"] >= 80, "Return"),
@@ -56,6 +58,8 @@ ARCHETYPES = {
     "Artist": ("🎨", lambda p, x: p["Variety"] >= 80, "Variety"),
     "All-Courter": ("⚖️", lambda p, x: min(p.values()) >= 40 and sum(v >= 55 for v in p.values()) >= 4, None),
 }
+PRIORITY = {"Big Server": 8, "Returner": 6, "Gunslinger": 4, "Shotmaker": 4, "Forehand Bully": 4, "Grinder": 2,
+            "Counterpuncher": 2, "Net Rusher": 0, "Artist": -4, "All-Courter": -8}
 FALLBACK = ("Baseliner", "🎾")
 UNPROFILED = ("Unprofiled", "❔")
 WEAKNESSES = {
@@ -70,20 +74,6 @@ WEAKNESSES = {
 
 def window_start(as_of: date) -> date:
     return as_of.replace(year=as_of.year - WINDOW_YEARS)
-
-
-def _pct(values: dict[str, float], higher_is_better: bool = True) -> dict[str, float]:
-    """Percentile rank (0-100, mid-rank for ties) of each key within ``values``."""
-    if not values:
-        return {}
-    order = sorted(values.values())
-    n = len(order)
-    out = {}
-    for k, v in values.items():
-        lo, hi = bisect.bisect_left(order, v), bisect.bisect_right(order, v)
-        r = 100 * (lo + (hi - lo) / 2) / n
-        out[k] = r if higher_is_better else 100 - r
-    return out
 
 
 def pct_of(value: float, pool: list[float], higher_is_better: bool = True) -> float:
@@ -153,7 +143,7 @@ class Pool:
     prior: dict[str, float]                           # measure -> pool rate
     charted: set[str]                                 # players with >= MIN_CHARTS charts
     sr: dict[str, dict[str, float]]                   # player -> {"serve": mean, "return": mean}
-    active: set[str]                                  # tour-level match in the last year
+    active: set[str]                                  # MIN_TOUR_MATCHES+ tour-level matches in the last year
     serve_stats: dict[str, dict[str, float]]          # player -> first_in, first_won, second_won (last year)
     gravity: dict[str, float] = field(default_factory=dict)
     gravity_n: dict[str, int] = field(default_factory=dict)
@@ -184,7 +174,7 @@ def _sr_ratings(conn: sqlite3.Connection) -> dict[str, dict[str, float]]:
 def _active_and_serve(conn: sqlite3.Connection, as_of: date) -> tuple[set[str], dict[str, dict[str, float]]]:
     since = (as_of - timedelta(days=365)).isoformat()
     tot: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0, 0, 0, 0])  # svpt, 1stin, 1stwon, 2nd pts, 2ndwon, matches
-    active = set()
+    played: dict[str, int] = defaultdict(int)
     q = """SELECT m.winner_id, m.loser_id, m.w_svpt, m.w_1stin, m.w_1stwon, m.w_2ndwon,
                   m.l_svpt, m.l_1stin, m.l_1stwon, m.l_2ndwon
            FROM match m JOIN tournament_edition e USING (edition_id)
@@ -195,7 +185,7 @@ def _active_and_serve(conn: sqlite3.Connection, as_of: date) -> tuple[set[str], 
         for pid, sv, fi, fw, sw in ((r[0], *r[2:6]), (r[1], *r[6:10])):
             if not pid:
                 continue
-            active.add(pid)
+            played[pid] += 1
             if sv and fi is not None and fw is not None and sw is not None and 0 < fi <= sv and fw <= fi and sw <= sv - fi:
                 t = tot[pid]
                 t[0] += sv
@@ -204,9 +194,10 @@ def _active_and_serve(conn: sqlite3.Connection, as_of: date) -> tuple[set[str], 
                 t[3] += sv - fi
                 t[4] += sw
                 t[5] += 1
+    active = {p for p, n in played.items() if n >= MIN_TOUR_MATCHES}
     stats = {}
     for pid, (sv, fi, fw, sp, sw, n) in tot.items():
-        if n >= 5:
+        if n >= MIN_TOUR_MATCHES:
             stats[pid] = {"first_in": fi / sv, "first_won": fw / fi, "second_won": sw / sp if sp else 0.0, "matches": n}
     return active, stats
 
@@ -369,7 +360,7 @@ def profile(conn: sqlite3.Connection, pool: Pool, pid: str) -> Profile:
             continue
         if rule(rule_axes, rule_extra):
             score = rule_axes.get(anchor, rule_extra.get(anchor, 0)) if anchor else sum(rule_axes.values()) / len(rule_axes)
-            matches.append((score, name, icon))
+            matches.append((score + PRIORITY.get(name, 0), name, icon))
     matches.sort(reverse=True)
     if matches:
         _, archetype, icon = matches[0]

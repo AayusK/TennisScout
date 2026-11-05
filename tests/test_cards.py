@@ -91,7 +91,7 @@ def _speed_db(tmp_path: Path) -> "db.sqlite3.Connection":
                     row.update({f"{side}_svpt": n, f"{side}_1stin": 50, f"{side}_1stwon": min(won, 50),
                                 f"{side}_2ndwon": won - min(won, 50), f"{side}_ace": aces})
                 seq += 1
-                conn.execute(f"""INSERT INTO match (match_id, edition_id, seq, round, winner_id, loser_id, outcome, event_time_precision,
+                conn.execute("""INSERT INTO match (match_id, edition_id, seq, round, winner_id, loser_id, outcome, event_time_precision,
                                  collected_at, availability_basis, identity_status, source, source_key, snapshot_id,
                                  w_svpt, w_1stin, w_1stwon, w_2ndwon, w_ace, l_svpt, l_1stin, l_1stwon, l_2ndwon, l_ace, event_date_lo)
                                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -164,7 +164,6 @@ def test_charting_collect_maps_server_and_returner(tmp_path):
 # ------------------------------------------------------------------------------------------- profiles
 
 def _pool(n_players=12, lines_each=6) -> profiles.Pool:
-    rng = random.Random(3)
     lines, rates = {}, {}
     for i in range(n_players):
         pid = f"P{i}"
@@ -326,6 +325,17 @@ def test_render_templates(template):
         assert "Vibes-based. Not in the model." in page and "RECEIPTS (FROM THE DATA)" in page
 
 
+def test_retired_meeting_is_not_called_straight_sets():
+    d = _payload()
+    d["h2h"] = {"a": 0, "b": 1, "meetings": [{"date": "2026-10-30", "year": 2026, "event": "Basel", "round": "QF", "surface": "Hard",
+                                             "indoor": "I", "speed": 62.0, "a_won": False, "score": "6-2 2-0", "retired": True,
+                                             "a_sets": ["2-6", "0-2"], "best_of": 3}]}
+    page = card.render(d, "tiebreak")
+    assert "won their lone meeting when Berrettini retired at 6-2 2-0" in page and "straight sets" not in page
+    assert "(Berrettini retired)" in page
+    assert "ret.</span>" in card.render(d, "matchup")
+
+
 def test_aura_notes_are_escaped_and_bolded():
     notes = {"a": {"meter": 90, "meter_label": "FULL AURA", "tagline": "Calm.", "receipts": ["**Says nothing.** <script>x</script>"]},
              "read": "Aura is **quiet**."}
@@ -343,3 +353,46 @@ def test_index_page_lists_matches():
 
 def test_payload_is_json_serialisable():
     json.dumps(_payload())
+
+
+def test_speed_tag_needs_a_clear_gap(monkeypatch):
+    fast = [_m(i, True, 70) for i in range(12)]          # wins every fast match the model called 50/50
+    slow = [_m(100 + i, i % 2 == 0, 35) for i in range(12)]  # exactly as expected on slow courts
+    monkeypatch.setattr(matchup, "predictions", lambda conn, ids: {m: ("ME", 0.5) for m in ids})
+    tag = matchup.speed_tag(None, "ME", fast + slow, date(2023, 1, 1))
+    assert tag["tag"] == "Fast-court riser" and tag["diff"] == pytest.approx(0.5)
+    assert matchup.speed_tag(None, "ME", fast[:5] + slow, date(2023, 1, 1)) is None  # too few fast matches
+    level = [_m(200 + i, i % 2 == 0, 70) for i in range(12)]
+    assert matchup.speed_tag(None, "ME", level + slow, date(2023, 1, 1)) is None
+
+
+def test_where_reads_naturally():
+    assert matchup.where("Paris Masters") == "in Paris"
+    assert matchup.where("US Open") == "at the US Open" and matchup.where("Tour Finals") == "at the Tour Finals"
+    assert matchup.where("Wimbledon") == "at Wimbledon" and matchup.where("Basel") == "in Basel"
+    assert matchup.event_display("Lyon (France) - Qualification") == "Lyon"
+
+
+def test_scheduled_fixture_statuses():
+    from tennisscout.upcoming import scheduled
+
+    assert scheduled({"event_status": "1", "event_live": "0", "event_winner": None})  # API-Tennis: not started
+    assert scheduled({"event_status": "", "event_live": "0"})
+    assert not scheduled({"event_status": "Set 2", "event_live": "1"})
+    assert not scheduled({"event_status": "Finished", "event_winner": "First Player"})
+    assert not scheduled({"event_status": "Cancelled", "event_live": "0"})
+
+
+@pytest.mark.parametrize("ranks,expect", [
+    ((95, 20), "ranks among the tour's best, and Bee's return does not."),
+    ((65, 50), "ranks above the tour average, ahead of Bee's return."),
+    ((45, 20), "(45) outranks Bee's return (20), both below the tour middle."),
+    ((70, 65), "strength against strength"),
+])
+def test_showdown_sentence_reads_right(ranks, expect):
+    A, B = {"short": "Ay"}, {"short": "Bee"}
+    q = {"left": {"side": "b", "what": "return", "rank": ranks[1]}, "right": {"side": "a", "what": "serve", "rank": ranks[0]},
+         "favours": "a"}
+    ev = matchup.Event("Paris Masters", "2026-11-05")
+    text = matchup.showdown(A, B, [q], 0.62, ev, None)
+    assert expect in text and "is above" not in text

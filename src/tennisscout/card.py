@@ -20,8 +20,7 @@ import os
 import re
 from datetime import date
 
-from . import court_speed
-from .profiles import AXES, AXIS_HELP
+from .profiles import AXES
 
 BRAND = os.environ.get("TENNISSCOUT_BRAND", "TennisScout")
 HANDLE = os.environ.get("TENNISSCOUT_HANDLE", "")
@@ -59,7 +58,11 @@ def _pct(x, nd=0) -> str:
 
 
 def _sg(x, nd=1) -> str:
-    return "–" if x is None else f"{x:+.{nd}f}".replace("-", "−")
+    if x is None:
+        return "–"
+    if round(x, nd) == 0:
+        return f"{0:.{nd}f}"  # never "−0"
+    return f"{x:+.{nd}f}".replace("-", "−")
 
 
 def _num(x, nd=1) -> str:
@@ -164,7 +167,7 @@ def _chip(text: str, icon: str = "", cls: str = "") -> str:
 
 def _radar(axes: dict, side: str, n_charts: int) -> str:
     """Seven style ranks (0-100) as a heptagon; dashed = tour middle (50)."""
-    cx, cy, R = 175, 140, 88
+    cx, cy, R = 170, 128, 80
     angles = [-math.pi / 2 + 2 * math.pi * i / len(AXES) for i in range(len(AXES))]
 
     def pt(i, r):
@@ -181,7 +184,7 @@ def _radar(axes: dict, side: str, n_charts: int) -> str:
                    f'fill="{FILL[side]}" stroke="#141a14" stroke-width="1.5"/>' for i, (_, v) in enumerate(shown))
     labels = ""
     for i, (a, v) in enumerate(shown):
-        x, y = pt(i, R + 30)
+        x, y = pt(i, R + 28)
         anchor = "middle" if abs(x - cx) < 20 else ("start" if x > cx else "end")
         if anchor == "start":
             x -= 14
@@ -192,7 +195,7 @@ def _radar(axes: dict, side: str, n_charts: int) -> str:
         val = "–" if faded else f"{v:.0f}"
         labels += (f'<text x="{x:.1f}" y="{y - 6:.1f}" text-anchor="{anchor}" class="ax">{a}</text>'
                    f'<text x="{x:.1f}" y="{y + 11:.1f}" text-anchor="{anchor}" class="axv" fill="{FILL[side] if hot else "#ffffff"}">{val}</text>')
-    return f"""<svg class="radar" viewBox="0 0 350 282" width="350" height="282" role="img" aria-label="style ranks">
+    return f"""<svg class="radar" viewBox="0 0 340 258" width="340" height="258" role="img" aria-label="style ranks">
 {rings}{spokes}<polygon points="{mid}" class="mid"/>
 <polygon points="{poly}" fill="{FILL[side]}" fill-opacity=".55" stroke="{FILL[side]}" stroke-width="2.5" stroke-linejoin="round"/>
 {dots}{labels}</svg>"""
@@ -205,7 +208,7 @@ def _player_top(d: dict, i: int) -> str:
     spike = pr["spike"]
     n = pr["axis_n"][spike]
     unit = "matches" if spike in ("Serve", "Return") else "charted matches"
-    aside = (f'<p class="spike">Biggest spike: <b>{_e(spike.lower())}</b>, ahead of {pr["axes"][spike]:.0f}% of the tour '
+    aside = (f'<p class="spike">Biggest spike: <b>{_e(spike.lower())}</b>, ahead of {min(pr["axes"][spike], 99):.0f}% of the tour '
              f'<span class="dim">({n} {unit})</span></p>')
     if form.get("retired_last"):
         r = form["retired_last"]
@@ -361,8 +364,8 @@ def _court_text(d: dict) -> str:
                    f"three shots ({_sg(diff, 0)} on a medium court).")
         out.append(f"<b>Short points on serve:</b> {A} wins {pa['measures']['fs_sv']:.0%}, {B} {pb['measures']['fs_sv']:.0%}.")
         tilt = t["tilt_a"]
-        if abs(tilt) < 0.003:
-            out.append("<b>Neutral ground for these two:</b> the speed tips it neither way, so the matchup above decides it.")
+        if abs(tilt) < 0.005:
+            out.append("<b>Neutral ground for these two:</b> the speed moves it by less than half a point, so the matchup above decides it.")
         else:
             h, o = ("a", "b") if tilt > 0 else ("b", "a")
             ph = d["model"]["p_a"] if h == "a" else 1 - d["model"]["p_a"]
@@ -433,7 +436,7 @@ def _h2h_block(d: dict) -> str:
         x = min(max(m["speed"], 0), 100)
         lift = sum(1 for p in placed if abs(p - x) < 3)
         placed.append(x)
-        dots += f'<span class="hdot" style="left:{x:.1f}%;bottom:{18 + 14 * lift}px;background:{FILL["a" if m["a_won"] else "b"]}"></span>'
+        dots += f'<span class="hdot" style="left:{x:.1f}%;bottom:{27 + 14 * lift}px;background:{FILL["a" if m["a_won"] else "b"]}"></span>'
     if ev["speed"] is not None:
         lo, hi = max(0, ev["speed"] - 10), min(100, ev["speed"] + 10)
         band = (f'<span class="hband" style="left:{lo:.1f}%;width:{hi - lo:.1f}%"></span>'
@@ -451,7 +454,8 @@ def _h2h_block(d: dict) -> str:
     sp = f", {round(last['speed'])}" if last["speed"] is not None else ""
     winner = "a" if last["a_won"] else "b"
     sets = " ".join(last["a_sets"]) if last["a_won"] else " ".join(_flip(s) for s in last["a_sets"])
-    last_txt = f'Last: <b>{_e(last["event"])} {last["year"]}</b> ({_e(court)}{sp}): {_cname(d, winner)} <span class="nw">{_e(sets)}</span>'
+    ret = " ret." if last.get("retired") else ""
+    last_txt = f'Last: <b>{_e(last["event"])} {last["year"]}</b> ({_e(court)}{sp}): {_cname(d, winner)} <span class="nw">{_e(sets)}{ret}</span>'
     axis = "".join(f'<span class="htick" style="left:{v}%">{v}</span>' for v in (20, 40, 60, 80, 100))
     return f"""<div class="h2h">{_sec('HEAD TO HEAD')}<p class="h2ht">{title}</p>
 <div class="hplot">{band}{dots}<span class="haxis"></span>{axis}<span class="hlab l">slow</span><span class="hlab m">SPEED</span>
@@ -472,12 +476,13 @@ def render_matchup(d: dict) -> str:
         "<b>The Blend</b>: the served model’s win chance plus the court tilt from both men’s short-point and rally rates; "
         "a description, not a validated model and not a price.",
         f"<b>Key questions</b>: tour rank 0–100 (style ranks among {d['pool']['charted_players']} men with "
-        f"{d['pool']['min_charts']}+ charted matches since {since}; serve and return among active players); red = the weak spot.",
+        f"{d['pool']['min_charts']}+ charted matches since {since}; serve and return among men with 10+ tour matches in the last year); red = the weak spot.",
         "<b>Against this style</b>: tour-level wins v what the model expected before each match.",
-        f"<b>The court</b>: same surface, SPEED within 10; hold + break v his other matches. <b>SPEED</b>: 50 = average tour event, "
+        "<b>The court</b>: same surface, SPEED within 10; hold + break v his other matches. <b>SPEED</b>: 50 = average tour event, "
         "15 = one standard deviation, from serve points won and aces beyond the players’ usual.",
         "<b>Gravity</b>: points per 100 ending within three shots in his matches, beyond court speed and opponents (+ short, − long).",
-        "<b>Style shape</b>: tour rank 0–100, dashed = tour middle; " + "; ".join(f"{a.lower()}: {AXIS_HELP[a]}" for a in AXES if a not in ("Serve", "Return")) + ".",
+        "<b>Style shape</b>: tour rank 0–100, dashed = tour middle; serve and return from all tour matches with stats, the rest "
+        "from charted matches (power = winners + forced errors per 100 drives, grind = rallies of 7+ shots won).",
     ]
     return _page(f"{_nm(d, 'a')} v {_nm(d, 'b')}", f"""{header}
 <section class="players">{_player_top(d, 0)}{_player_top(d, 1)}</section>
@@ -539,7 +544,11 @@ def _tb_headline(d: dict) -> str:
         how = ("in straight sets" if nsets == (last["best_of"] or 3) // 2 + 1 else
                "in a third set" if nsets == 3 else "in a fifth set" if nsets == 5 else f"in {nsets} sets")
         which = "lone" if len(h["meetings"]) == 1 else "last"
-        out.append(f"{_nm(d, w)} won their {which} meeting {how} and {games} games.")
+        if last.get("retired"):
+            sets = " ".join(last["a_sets"]) if last["a_won"] else " ".join(_flip(s) for s in last["a_sets"])
+            out.append(f"{_nm(d, w)} won their {which} meeting when {_nm(d, 'b' if w == 'a' else 'a')} retired at {sets}.")
+        else:
+            out.append(f"{_nm(d, w)} won their {which} meeting {how} and {games} games.")
     else:
         out.append(f"{_nm(d, 'a')} and {_nm(d, 'b')} have never met.")
     best = None
@@ -549,7 +558,7 @@ def _tb_headline(d: dict) -> str:
             best = (side, (k, n), k / n)
     if best:
         side, (k, n), _ = best
-        out.append(f"{_word(k, True)} of his {_word(n)} {d['event']['court']} matches over the last year found a tiebreak.")
+        out.append(f"{_word(k, True)} of {_nm(d, side)}’s {_word(n)} {d['event']['court']} matches over the last year found a tiebreak.")
     return " ".join(out)
 
 
@@ -572,7 +581,8 @@ def render_tiebreak(d: dict) -> str:
         last = max(h["meetings"], key=lambda m: m["date"])
         w = "a" if last["a_won"] else "b"
         sets = " ".join(last["a_sets"]) if last["a_won"] else " ".join(_flip(s) for s in last["a_sets"])
-        met = f" They last met in best-of-{last['best_of'] or 3}: <b>{_e(_nm(d, w))} {_e(sets)}</b> at {_e(last['event'])} {last['year']}."
+        ret = f" ({_e(_nm(d, 'b' if w == 'a' else 'a'))} retired)" if last.get("retired") else ""
+        met = f" They last met in best-of-{last['best_of'] or 3}: <b>{_e(_nm(d, w))} {_e(sets)}</b>{ret} at {_e(last['event'])} {last['year']}."
     games = f"Their last 10 average <b>{_num(tb['games_last10'])} games</b>." if tb["games_last10"] else ""
     dist = []
     for i, side in enumerate("ab"):
@@ -669,13 +679,12 @@ def _aura_card(d: dict, i: int, notes: dict | None) -> str:
 
 
 def _data_receipts(d: dict, i: int) -> list[str]:
-    side = "ab"[i]
     P, pr = d["players"][i], d["profiles"][i]
     out = []
     if P.get("best_slam"):
         out.append(f"**The trophy case:** {P['titles']} tour title{'s' if P['titles'] != 1 else ''}; best Grand Slam: {P['best_slam'].lower()}.")
     spike = pr["spike"]
-    out.append(f"**Biggest spike: {spike.lower()}**, ahead of {pr['axes'][spike]:.0f}% of the tour.")
+    out.append(f"**Biggest spike: {spike.lower()}**, ahead of {min(pr['axes'][spike], 99):.0f}% of the tour.")
     f = d["form"][i]
     if f["n"]:
         diff = f["w"] - f["expected"]
@@ -709,7 +718,7 @@ def render_aura(d: dict, notes: dict | None = None) -> str:
     h = d["h2h"]
     h2h = (f"{_nm(d, 'a' if h['a'] > h['b'] else 'b')} {max(h['a'], h['b'])}–{min(h['a'], h['b'])}" if h["a"] != h["b"]
            else ("First meeting" if not h["meetings"] else f"Level {h['a']}–{h['b']}"))
-    header = _header(d, f'<span class="nw">SCOUT <span class="lime">AURA</span> REPORT</span>', _event_lines(d, matchup_first=True))
+    header = _header(d, '<span class="nw">SCOUT <span class="lime">AURA</span> REPORT</span>', _event_lines(d, matchup_first=True))
     word = {"aura": "AURA", "cringe": "CRINGE"}
     left_label, right_label = word.get(tone_a, ""), word.get(tone_b, "")
     caps = (f"{left_label} V {right_label}" if left_label and right_label else f"{A['short'].upper()} V {B['short'].upper()}")
@@ -760,17 +769,17 @@ border:70px solid rgba(255,255,255,.035);pointer-events:none}
 .players .na,.gravity .na,.tbplayers .na{color:var(--a)}.players .nb,.tbplayers .nb{color:var(--b)}
 header.top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;position:relative}
 .brand{display:flex;gap:18px;align-items:center}
-.logo{width:104px;height:104px;border-radius:24px;background:#0b0d0b;display:grid;place-items:center;
+.logo{width:92px;height:92px;border-radius:24px;background:#0b0d0b;display:grid;place-items:center;
 box-shadow:6px 6px 0 #000;border:2px solid #2a2f2a}
-.logo svg{width:76px;height:76px}
+.logo svg{width:68px;height:68px}
 .brand .sub{color:var(--lime);font-weight:600;font-size:21px;letter-spacing:.2px}
-.brand h1{font-size:64px;font-weight:800;letter-spacing:-.5px;line-height:1.02;margin-top:4px}
-.brand h1 .nw{font-size:56px}
-.ev{text-align:right;font-size:20px;line-height:1.45;color:#dcdfd5}
-.ev .evname{font-size:27px;color:#fff;font-weight:700}
+.brand h1{font-size:58px;font-weight:800;letter-spacing:-.5px;line-height:1.02;margin-top:4px}
+.brand h1 .nw{font-size:52px}
+.ev{text-align:right;font-size:19px;line-height:1.4;color:#dcdfd5}
+.ev .evname{font-size:26px;color:#fff;font-weight:700}
 .players{display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:16px;position:relative}
 .pname{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.pname h2{font-size:52px;font-weight:800;letter-spacing:-.5px;line-height:1.05}
+.pname h2{font-size:48px;font-weight:800;letter-spacing:-.5px;line-height:1.05}
 .chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 14px;font-weight:600;font-size:15px;
 border:1.5px solid #3c443d;background:#202720;color:#fff;white-space:nowrap}
 .chip.arch{font-size:19px;padding:7px 16px}
@@ -782,7 +791,7 @@ border:1.5px solid #3c443d;background:#202720;color:#fff;white-space:nowrap}
 .radar .mid{fill:none;stroke:#e9eee3;stroke-opacity:.55;stroke-dasharray:4 4;stroke-width:1.4}
 .radar .ax{fill:#fff;font-size:13.5px;font-weight:700;font-family:Outfit,Inter,sans-serif}
 .radar .axv{font-size:14px;font-weight:800;font-family:Outfit,Inter,sans-serif}
-.aside{padding-top:44px;font-size:16.5px;line-height:1.33;max-width:240px;margin-left:-14px}
+.aside{padding-top:34px;font-size:16.5px;line-height:1.33;max-width:240px;margin-left:-14px}
 .aside p{margin-bottom:8px}.aside .spike b{font-weight:800}
 .aside .mixed{margin-top:10px;margin-bottom:6px}.chips{display:flex;flex-wrap:wrap;gap:7px}
 .warn{color:#ff6d58;font-weight:800}
@@ -809,43 +818,44 @@ box-shadow:0 0 0 2px rgba(255,255,255,.75)}
 .qhead{display:flex;align-items:center;gap:12px}
 .kind{font-size:12.5px;font-weight:800;letter-spacing:1px;border-radius:99px;padding:4px 10px}
 .k-fs{background:#6c9a19;color:#fff}.k-ra{background:var(--tan);color:#6f5317}
-.qq{font-size:24px;font-weight:800;flex:1}
+.qq{font-size:22px;font-weight:800;flex:1}
 .edge{font-size:14px;font-weight:800;border-radius:99px;padding:5px 13px;letter-spacing:.5px;color:#fff}
 .edge.ea{background:#6c9a19}.edge.eb{background:#3c95d6}.edge.even{background:#9a9a92}
 .edge.slight.ea{background:#dcebc0;color:#4b7410}.edge.slight.eb{background:#d3e7f6;color:#226fae}
-.qtrack{position:relative;height:50px;margin:0 4px}
-.qtrack:before{content:"";position:absolute;left:0;right:0;top:36px;height:3px;background:#cfccc0;border-radius:3px}
-.qmid{position:absolute;left:50%;top:29px;width:2px;height:16px;background:#bcb8aa}
-.qseg{position:absolute;top:36px;height:3px;opacity:.75}
-.qdot{position:absolute;top:37.5px;width:20px;height:20px;border-radius:50%;transform:translate(-50%,-50%);border:3px solid #fff;
+.qtrack{position:relative;height:44px;margin:0 4px}
+.qtrack:before{content:"";position:absolute;left:0;right:0;top:32px;height:3px;background:#cfccc0;border-radius:3px}
+.qmid{position:absolute;left:50%;top:25px;width:2px;height:16px;background:#bcb8aa}
+.qseg{position:absolute;top:32px;height:3px;opacity:.75}
+.qdot{position:absolute;top:33.5px;width:20px;height:20px;border-radius:50%;transform:translate(-50%,-50%);border:3px solid #fff;
 box-shadow:0 0 0 1.5px rgba(0,0,0,.25)}
-.qlab{position:absolute;top:3px;font-size:15.5px;white-space:nowrap;color:#333}
+.qlab{position:absolute;top:1px;font-size:15.5px;white-space:nowrap;color:#333}
 .qlab .rv{font-size:17px}.qlab .weakv{color:var(--red)}
 .qd{font-size:14.5px;color:#333;margin-top:2px}
 .against{display:grid;grid-template-columns:1fr 1fr;gap:26px}
 .acol+.acol{border-left:1.5px solid var(--line);padding-left:24px}
 .ahead{font-size:16px;margin-bottom:4px}
-.arow{display:grid;grid-template-columns:1fr 78px 104px 44px;align-items:center;gap:10px;font-size:15px;padding:3px 0}
+.arow{display:grid;grid-template-columns:1fr 70px 104px 56px;align-items:center;gap:10px;font-size:15px;padding:3px 0}
+.arec{white-space:nowrap}
 .al.weak{color:var(--red)}
 .abar{position:relative;height:12px;background:#dedbd0;border-radius:3px}
 .afill{position:absolute;top:0;bottom:0;border-radius:3px}
 .aexp{position:absolute;top:-3px;width:2px;height:18px;background:#222}
 .aval{font-weight:700;text-align:right}.arec{text-align:right;font-size:16px}
-.board p{line-height:1.42}.board .cp{font-size:17.5px}
-.board .big{font-size:29px;line-height:1.24}.board .qd{font-size:14.5px;line-height:1.35}.board .small{font-size:15px}
+.board p{line-height:1.4}.board .cp{font-size:16.5px}
+.board .big{font-size:27px;line-height:1.22}.board .qd{font-size:14.5px;line-height:1.35}.board .small{font-size:15px}
 .board .tiny{font-size:12.5px}
 .split{display:grid;grid-template-columns:1.15fr 1fr;gap:22px;margin-top:8px}
 .ctable{background:var(--panel);border-radius:16px;padding:10px 16px}
-.crow{display:grid;grid-template-columns:1fr 1.3fr 1fr;align-items:center;font-size:16px;padding:3px 0}
-.crow b{font-size:20px}.crow span{text-align:center;color:#444}.crow .r{text-align:right}
+.crow{display:grid;grid-template-columns:1fr 1.3fr 1fr;align-items:center;font-size:15px;padding:2px 0}
+.crow b{font-size:18.5px}.crow span{text-align:center;color:#444}.crow .r{text-align:right}
 .chead{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0 6px;white-space:nowrap}
 .chead .na,.chead .nb{font-size:24px;font-weight:800}
 .cpill{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.6px;border-radius:99px;padding:3px 8px;margin:0 8px;vertical-align:middle}
 .cpill.neutral{background:#dcd9cf;color:#666}.cpill.good{background:#6c9a19;color:#fff}.cpill.bad{background:var(--red);color:#fff}
 .h2h{border-left:1.5px solid var(--line);padding-left:20px}
 .h2h .sh h3{margin-bottom:2px}
-.board .h2ht{font-size:25px;font-weight:800;color:#222}
-.hplot{position:relative;height:84px;margin:6px 6px 4px}
+.board .h2ht{font-size:23px;font-weight:800;color:#222}
+.hplot{position:relative;height:74px;margin:4px 6px 2px}
 .haxis{position:absolute;left:0;right:0;bottom:34px;height:2px;background:#cfccc0}
 .htick{position:absolute;bottom:16px;transform:translateX(-50%);font-size:11.5px;color:#666}
 .hlab{position:absolute;bottom:0;font-size:11.5px;color:#666;transform:translateX(-50%)}
@@ -983,7 +993,3 @@ td.p{{font-weight:700;color:#cbe44a}}a{{color:#cbe44a;margin-right:10px}}.dim{{c
 @media (max-width:640px){{td:nth-child(2){{display:none}}}}</style></head><body><main>
 <h1>Scouting cards</h1><p>Scheduled ATP matches with the served model's chance for the first-named player. Research output, not betting advice.</p>
 <table>{rows}</table></main></body></html>"""
-
-
-def speed_label(speed: float | None) -> str:
-    return court_speed.label(speed)
