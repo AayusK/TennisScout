@@ -655,11 +655,11 @@ def tiebreak_file(a_ms: list[M], b_ms: list[M], ev: Event, since: date, today: d
             "band": len(band), "band_three": sum(len(m.sets) >= 3 for m in band), "band_tb": sum(m.tiebreaks > 0 for m in band),
         }
 
-    last5 = [a_ms[:5], b_ms[:5]]
-    ten = last5[0] + last5[1]
+    ten = a_ms[:5] + b_ms[:5]
+    done = [m for m in ten if m.outcome == "completed"]  # a retirement at 6-2 2-0 is not a 10-game match
     return {"a": rates(a_ms), "b": rates(b_ms),
             "tiebreaks_last10": sum(m.tiebreaks for m in ten),
-            "games_last10": (sum(m.games for m in ten) / len(ten)) if ten else None}
+            "games_last10": (sum(m.games for m in done) / len(done)) if done else None}
 
 
 def tour_rates(conn: sqlite3.Connection, ev: Event, today: date) -> dict:

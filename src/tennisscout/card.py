@@ -583,7 +583,7 @@ def render_tiebreak(d: dict) -> str:
         sets = " ".join(last["a_sets"]) if last["a_won"] else " ".join(_flip(s) for s in last["a_sets"])
         ret = f" ({_e(_nm(d, 'b' if w == 'a' else 'a'))} retired)" if last.get("retired") else ""
         met = f" They last met in best-of-{last['best_of'] or 3}: <b>{_e(_nm(d, w))} {_e(sets)}</b>{ret} at {_e(last['event'])} {last['year']}."
-    games = f"Their last 10 average <b>{_num(tb['games_last10'])} games</b>." if tb["games_last10"] else ""
+    games = f"Their last 10 average <b>{_num(tb['games_last10'])} games</b> (retirements out)." if tb["games_last10"] else ""
     dist = []
     for i, side in enumerate("ab"):
         t = tb[side]
